@@ -1,7 +1,7 @@
 # OpenShift Operator Installation Troubleshooting Runbook
 
 ## Document Information
-- **Created By**: pandyalr_anz
+- **Created By**: Rakesh Pandyala
 - **Date**: 2025-11-07
 - **Incident**: Loki and Cluster Logging Operator Installation Failure
 - **Resolution Time**: ~4 hours of pod stuck + troubleshooting

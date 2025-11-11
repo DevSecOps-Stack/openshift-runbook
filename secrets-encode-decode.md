@@ -1,61 +1,111 @@
-# Key Differences: `stringData` vs `data` in Kubernetes Secrets
+# Key Differences Summary
 
-This document summarizes the practical and technical differences between using the `stringData` and `data` fields in Kubernetes Secrets — especially when secrets are managed via **AWS Secrets Manager**, **ArgoCD**, and **Helm** pipelines.
+## stringData vs data Approach
+
+| Step | stringData (Case 1) ✅ | data (Case 2) ⚠️ |
+|------|------------------------|-------------------|
+| **AWS Secrets Manager** | **Plain text** | **Base64-encoded (manual)** |
+|  | ```json
+{
+  "CLOUDABILITY_API_KEY": "abc123xyz",
+  "cloudability_outbound_proxy": "http://proxy:8080"
+}
+``` | ```json
+{
+  "CLOUDABILITY_API_KEY": "YWJjMTIzeHl6",
+  "cloudability_outbound_proxy": "aHR0cDovL3Byb3h5Ojo4MDgw"
+}
+``` |
+| **ArgoCD Values** | **Passes plain text** | **Passes base64** |
+|  | ```yaml
+apiKey: "abc123xyz"
+proxy:
+  outboundProxy: "http://proxy:8080"
+``` | ```yaml
+apiKey: "YWJjMTIzeHl6"
+proxy:
+  outboundProxy: "aHR0cDovL3Byb3h5Ojo4MDgw"
+``` |
+| **Helm Template** | **`stringData:` field** | **`data:` field** |
+|  | ```yaml
+apiVersion: v1
+kind: Secret
+type: Opaque
+stringData:
+  CLOUDABILITY_API_KEY: {{ .Values.apiKey | quote }}
+  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy | quote }}
+``` | ```yaml
+apiVersion: v1
+kind: Secret
+type: Opaque
+data:
+  CLOUDABILITY_API_KEY: {{ .Values.apiKey | quote }}
+  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy | quote }}
+``` |
+| **K8s API Processing** | ✅ Auto-converts `stringData` to `data` (base64) | ⚠️ Validates base64 format (errors if invalid) |
+| **Stored in etcd** | **Base64-encoded** | **Base64-encoded** |
+|  | ```yaml
+data:
+  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"
+  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"
+``` | ```yaml
+data:
+  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"
+  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"
+``` |
+| **Pod Environment** | **Plain text (auto-decoded)** | **Plain text (auto-decoded)** |
+|  | ```bash
+$ echo $CLOUDABILITY_API_KEY
+abc123xyz
+
+$ echo $cloudability_outbound_proxy
+http://proxy:8080
+``` | ```bash
+$ echo $CLOUDABILITY_API_KEY
+abc123xyz
+
+$ echo $cloudability_outbound_proxy
+http://proxy:8080
+``` |
+| **Error Risk** | ✅ **Low** - No manual encoding | ⚠️ **High** - Manual encoding errors |
+| **Maintainability** | ✅ **Easy** - Human-readable in AWS | ⚠️ **Hard** - Must decode to read |
+| **Production Ready** | ✅ **Recommended** | ⚠️ **Not recommended** |
 
 ---
 
-## 🧩 Comparison Summary
-
-| Step | stringData (Case 1) | data (Case 2) |
-|------|----------------------|----------------|
-| **AWS Secrets Manager** | Plain text | Base64 encoded |
-| **ArgoCD Values** | Plain text YAML | Base64 YAML |
-| **Helm Template** | Uses `stringData:` | Uses `data:` |
-| **K8s API** | Auto base64 conversion | Expects base64 |
-| **Error Risk** | Low | High |
-
-
----
-
-## ✅ Recommended Approach
+## Recommendation
 
 **Use Case 1: `stringData` with plain text in AWS Secrets Manager**
 
-### Why It’s Better
-- ✅ Simpler and less error-prone
-- ✅ Human-readable in AWS Console
-- ✅ Easier to audit and rotate
-- ✅ Kubernetes handles encoding automatically
-- ✅ Same security posture (both end up base64-encoded in etcd)
+### Why?
+- ✅ Simpler workflow  
+- ✅ Less error-prone  
+- ✅ Human-readable secrets in AWS Console  
+- ✅ Easier to audit and rotate  
+- ✅ Same security posture (both stored as base64 in etcd)  
+- ✅ Kubernetes handles encoding automatically  
 
 ---
 
-## 🧠 How Kubernetes Handles It Internally
-
-1. When a Secret uses `stringData`, Kubernetes API server:
-   - Accepts plain text.
-   - Base64-encodes the values automatically.
-   - Stores only the encoded form in `.data` (in etcd).
-
-2. When a Pod reads the secret:
-   - The Kubelet automatically **decodes** it back to plain text.
-   - The application sees only the clear text value.
-
-So, both `stringData` and `data` **store secrets securely**, but `stringData` simplifies your workflow.
-
----
-
-## 🧩 Mixed Use Example
-
-If you must mix both approaches (e.g., static + dynamic values):
+### Final Production Template
 
 ```yaml
+{{- if .Values.secret.create }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mixed-secret
+  name: {{ .Values.secretName | quote }}
+  labels:
+    {{- include "metrics-agent.labels" . | nindent 4 }}
+    {{- with .Values.secret.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 type: Opaque
-data:
-  preEncodedValue: YWJjMTIzeHl6
 stringData:
-  runtimeValue: {{ .Values.dynamicSecret | quote }}
+  {{- with .Values.apiKey }}
+  CLOUDABILITY_API_KEY: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.proxy.outboundProxy }}
+  cloudability_outbound_proxy: {{ . | quote }}
+  {{- end }}
+{{- end }}

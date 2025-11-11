@@ -4,12 +4,29 @@
 
 | Step | stringData (Case 1) ✅ | data (Case 2) ⚠️ |
 |------|------------------------|-------------------|
-| **AWS Secrets Manager** | **Plain text**<br><br>```json<br>{<br>  "CLOUDABILITY_API_KEY": "abc123xyz",<br>  "cloudability_outbound_proxy": "http://proxy:8080"<br>}<br>``` | **Base64-encoded (manual)**<br><br>```json<br>{<br>  "CLOUDABILITY_API_KEY": "YWJjMTIzeHl6",<br>  "cloudability_outbound_proxy": "aHR0cDovL3Byb3h5Ojo4MDgw"<br>}<br>``` |
-| **ArgoCD Values** | **Passes plain text**<br><br>```yaml<br>apiKey: "abc123xyz"<br>proxy:<br>  outboundProxy: "http://proxy:8080"<br>``` | **Passes base64**<br><br>```yaml<br>apiKey: "YWJjMTIzeHl6"<br>proxy:<br>  outboundProxy: "aHR0cDovL3Byb3h5Ojo4MDgw"<br>``` |
-| **Helm Template** | **Uses `stringData:`**<br><br>```yaml<br>apiVersion: v1<br>kind: Secret<br>type: Opaque<br>stringData:<br>  CLOUDABILITY_API_KEY: {{ .Values.apiKey \| quote }}<br>  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy \| quote }}<br>``` | **Uses `data:`**<br><br>```yaml<br>apiVersion: v1<br>kind: Secret<br>type: Opaque<br>data:<br>  CLOUDABILITY_API_KEY: {{ .Values.apiKey \| quote }}<br>  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy \| quote }}<br>``` |
-| **K8s API Processing** | ✅ Auto-converts `stringData` → `data` (base64) | ⚠️ Validates base64 format (errors if invalid) |
-| **Stored in etcd** | **Base64-encoded**<br><br>```yaml<br>data:<br>  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"<br>  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"<br>``` | **Base64-encoded**<br><br>```yaml<br>data:<br>  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"<br>  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"<br>``` |
-| **Pod Environment** | **Plain text (auto-decoded)**<br><br>```bash<br>$ echo $CLOUDABILITY_API_KEY<br>abc123xyz<br><br>$ echo $cloudability_outbound_proxy<br>http://proxy:8080<br>``` | **Plain text (auto-decoded)**<br><br>```bash<br>$ echo $CLOUDABILITY_API_KEY<br>abc123xyz<br><br>$ echo $cloudability_outbound_proxy<br>http://proxy:8080<br>``` |
+| **AWS Secrets Manager** | **Plain text** | **Base64-encoded (manual)** |
+| | `{ "CLOUDABILITY_API_KEY": "abc123xyz", "cloudability_outbound_proxy": "http://proxy:8080" }` | `{ "CLOUDABILITY_API_KEY": "YWJjMTIzeHl6", "cloudability_outbound_proxy": "aHR0cDovL3Byb3h5Ojo4MDgw" }` |
+| **ArgoCD Values** | **Passes plain text** | **Passes base64** |
+| | `apiKey: "abc123xyz"` | `apiKey: "YWJjMTIzeHl6"` |
+| | `proxy:` | `proxy:` |
+| | `  outboundProxy: "http://proxy:8080"` | `  outboundProxy: "aHR0cDovL3Byb3h5Ojo4MDgw"` |
+| **Helm Template** | **Uses stringData field** | **Uses data field** |
+| | `apiVersion: v1` | `apiVersion: v1` |
+| | `kind: Secret` | `kind: Secret` |
+| | `type: Opaque` | `type: Opaque` |
+| | `stringData:` | `data:` |
+| | `  CLOUDABILITY_API_KEY: {{ .Values.apiKey \| quote }}` | `  CLOUDABILITY_API_KEY: {{ .Values.apiKey \| quote }}` |
+| | `  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy \| quote }}` | `  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy \| quote }}` |
+| **K8s API Processing** | ✅ Auto-converts stringData to data (base64) | ⚠️ Validates base64 format (errors if invalid) |
+| **Stored in etcd** | **Base64-encoded** | **Base64-encoded** |
+| | `data:` | `data:` |
+| | `  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"` | `  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"` |
+| | `  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"` | `  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"` |
+| **Pod Environment** | **Plain text (auto-decoded)** | **Plain text (auto-decoded)** |
+| | `$ echo $CLOUDABILITY_API_KEY` | `$ echo $CLOUDABILITY_API_KEY` |
+| | `abc123xyz` | `abc123xyz` |
+| | `$ echo $cloudability_outbound_proxy` | `$ echo $cloudability_outbound_proxy` |
+| | `http://proxy:8080` | `http://proxy:8080` |
 | **Error Risk** | ✅ Low (auto-encoding handled by K8s) | ⚠️ High (manual encoding prone to error) |
 | **Maintainability** | ✅ Easy, human-readable | ⚠️ Hard, must decode to verify |
 | **Production Ready** | ✅ **Recommended** | ⚠️ Not recommended |
@@ -31,9 +48,19 @@
 
 ---
 
-## YAML Examples
+## Complete YAML Examples
 
-### ✅ Case 1 — Using `stringData` (Recommended)
+## Complete YAML Examples
+
+<table>
+<tr>
+<th>✅ Case 1 — Using <code>stringData</code> (Recommended)</th>
+<th>⚠️ Case 2 — Using <code>data</code> (Not Recommended)</th>
+</tr>
+<tr>
+<td valign="top">
+
+**Helm Template:**
 
 ```yaml
 {{- if .Values.secret.create }}
@@ -58,6 +85,7 @@ stringData:
 ```
 
 **AWS Secrets Manager (Plain Text):**
+
 ```json
 {
   "CLOUDABILITY_API_KEY": "abc123xyz",
@@ -65,9 +93,10 @@ stringData:
 }
 ```
 
----
+</td>
+<td valign="top">
 
-### ⚠️ Case 2 — Using `data` (Not Recommended)
+**Helm Template:**
 
 ```yaml
 {{- if .Values.secret.create }}
@@ -91,7 +120,8 @@ data:
 {{- end }}
 ```
 
-**AWS Secrets Manager (Base64-Encoded - Manual):**
+**AWS Secrets Manager (Base64-Encoded):**
+
 ```json
 {
   "CLOUDABILITY_API_KEY": "YWJjMTIzeHl6",
@@ -99,44 +129,50 @@ data:
 }
 ```
 
-**Note:** You must manually encode values before storing in AWS:
+**Manual Encoding Required:**
+
 ```bash
 echo -n "abc123xyz" | base64
 # Output: YWJjMTIzeHl6
+
+echo -n "http://proxy:8080" | base64
+# Output: aHR0cDovL3Byb3h5Ojo4MDgw
 ```
+
+</td>
+</tr>
+</table>
 
 ---
 
 ## Flow Comparison
 
-### Case 1 Flow (stringData)
-```
-AWS Secrets Manager (plain) 
-  → ArgoCD (plain) 
-  → Helm stringData (plain) 
-  → K8s API (auto-encodes) 
-  → etcd (base64) 
-  → Pod (auto-decodes to plain)
-```
+| Case 1 Flow (stringData) ✅ | Case 2 Flow (data) ⚠️ |
+|------------------------------|------------------------|
+| `AWS Secrets Manager (plain text)` | `AWS Secrets Manager (base64 - manually encoded)` |
+| ↓ | ↓ |
+| `ArgoCD (plain text)` | `ArgoCD (base64)` |
+| ↓ | ↓ |
+| `Helm stringData (plain text)` | `Helm data (base64)` |
+| ↓ | ↓ |
+| `K8s API (auto-encodes to base64)` | `K8s API (validates base64 format)` |
+| ↓ | ↓ |
+| `etcd storage (base64 encrypted)` | `etcd storage (base64 encrypted)` |
+| ↓ | ↓ |
+| `Pod reads (auto-decodes to plain text)` | `Pod reads (auto-decodes to plain text)` |
 
-### Case 2 Flow (data)
-```
-AWS Secrets Manager (base64) 
-  → ArgoCD (base64) 
-  → Helm data (base64) 
-  → K8s API (validates) 
-  → etcd (base64) 
-  → Pod (auto-decodes to plain)
-```
+**Key Difference:** Case 1 (stringData) handles encoding automatically at K8s API level, while Case 2 (data) requires manual base64 encoding before storing in AWS Secrets Manager.
 
 ---
 
 ## ✅ Conclusion
 
-Use **`stringData`** for production deployments with ArgoCD and AWS Secrets Manager:
+**Use `stringData` for production deployments with ArgoCD and AWS Secrets Manager:**
+
 - Lower operational risk
 - Simpler maintenance
-- Human-readable secrets
+- Human-readable secrets in AWS Console
 - Same security level as `data` approach
+- Eliminates manual encoding errors
 
-Both approaches result in the same encrypted storage in etcd, but `stringData` eliminates manual encoding errors.
+Both approaches result in the same encrypted storage in etcd, but `stringData` is the production-grade choice.

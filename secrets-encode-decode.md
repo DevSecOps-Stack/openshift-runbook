@@ -6,22 +6,14 @@ This document summarizes the practical and technical differences between using t
 
 ## 🧩 Comparison Summary
 
-| Step | **stringData (Case 1)** ✅ | **data (Case 2)** ⚠️ |
-|------|-----------------------------|------------------------|
-| **AWS Secrets Manager** | **Plain text** | **Base64-encoded (manual)** |
-| | ```json<br>{<br>  "CLOUDABILITY_API_KEY": "abc123xyz",<br>  "cloudability_outbound_proxy": "http://proxy:8080"<br>}``` | ```json<br>{<br>  "CLOUDABILITY_API_KEY": "YWJjMTIzeHl6",<br>  "cloudability_outbound_proxy": "aHR0cDovL3Byb3h5Ojo4MDgw"<br>}``` |
-| **ArgoCD Values** | **Passes plain text** | **Passes base64** |
-| | ```yaml<br>apiKey: "abc123xyz"<br>proxy:<br>  outboundProxy: "http://proxy:8080"``` | ```yaml<br>apiKey: "YWJjMTIzeHl6"<br>proxy:<br>  outboundProxy: "aHR0cDovL3Byb3h5Ojo4MDgw"``` |
-| **Helm Template** | **Uses `stringData:`** | **Uses `data:`** |
-| | ```yaml<br>apiVersion: v1<br>kind: Secret<br>type: Opaque<br>stringData:<br>  CLOUDABILITY_API_KEY: {{ .Values.apiKey \| quote }}<br>  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy \| quote }}``` | ```yaml<br>apiVersion: v1<br>kind: Secret<br>type: Opaque<br>data:<br>  CLOUDABILITY_API_KEY: {{ .Values.apiKey \| quote }}<br>  cloudability_outbound_proxy: {{ .Values.proxy.outboundProxy \| quote }}``` |
-| **K8s API Processing** | ✅ Auto-converts `stringData` → `data` (base64) | ⚠️ Validates base64 input (fails if invalid) |
-| **Stored in etcd** | Base64-encoded | Base64-encoded |
-| | ```yaml<br>data:<br>  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"<br>  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"``` | ```yaml<br>data:<br>  CLOUDABILITY_API_KEY: "YWJjMTIzeHl6"<br>  cloudability_outbound_proxy: "aHR0cDovL3Byb3h5Ojo4MDgw"``` |
-| **Pod Environment** | Plain text (auto-decoded) | Plain text (auto-decoded) |
-| | ```bash<br>$ echo $CLOUDABILITY_API_KEY<br>abc123xyz<br><br>$ echo $cloudability_outbound_proxy<br>http://proxy:8080``` | ```bash<br>$ echo $CLOUDABILITY_API_KEY<br>abc123xyz<br><br>$ echo $cloudability_outbound_proxy<br>http://proxy:8080``` |
-| **Error Risk** | ✅ Low (auto-handled encoding) | ⚠️ High (manual base64 encoding) |
-| **Maintainability** | ✅ Human-readable | ⚠️ Harder to debug and audit |
-| **Production Ready** | ✅ Recommended | ⚠️ Not recommended |
+| Step | stringData (Case 1) | data (Case 2) |
+|------|----------------------|----------------|
+| **AWS Secrets Manager** | Plain text | Base64 encoded |
+| **ArgoCD Values** | Plain text YAML | Base64 YAML |
+| **Helm Template** | Uses `stringData:` | Uses `data:` |
+| **K8s API** | Auto base64 conversion | Expects base64 |
+| **Error Risk** | Low | High |
+
 
 ---
 

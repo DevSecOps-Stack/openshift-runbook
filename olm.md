@@ -1,39 +1,21 @@
-Subscription created
-    ↓
-OLM creates InstallPlan
-    ↓
-InstallPlan approved (Manual or Auto)
-    ↓
-OLM executes InstallPlan
-    ↓
-CSV (ClusterServiceVersion) installation starts
-    ├─ Defines the operator version and manifests to deploy
-    ├─ Creates or updates the following resources:
-    │
-    ├─► CRDs (CustomResourceDefinitions)
-    │     • Example: lokistacks.loki.grafana.com
-    │     • Extends Kubernetes API so you can create LokiStack CRs
-    │
-    ├─► RBAC objects
-    │     • ClusterRoles, ClusterRoleBindings, RoleBindings, ServiceAccounts
-    │
-    ├─► ConfigMaps
-    │     • e.g. loki-operator-manager-config (contains controller runtime config)
-    │
-    ├─► Deployments
-    │     • e.g. loki-operator-controller-manager
-    │     • Manages operator pods
-    │
-    └─► (Optional) Services / Webhooks / PodMonitors (depends on operator design)
-    ↓
-Deployment creates Operator Pod(s)
-    ↓
-Pod mounts ConfigMap and starts successfully
-    ↓
-Operator becomes active
-    ↓
-Operator watches for CRDs it owns (e.g. LokiStack)
-    ↓
-User or another component creates a Custom Resource (CR)
-    ↓
-Operator reconciles the CR → creates real workloads (e.g. Loki pods)
+# 🧩 Operator Lifecycle Flow (OLM Installation Sequence)
+
+```mermaid
+flowchart TD
+    A[Subscription created] --> B[OLM creates InstallPlan]
+    B --> C[InstallPlan approved (Manual or Auto)]
+    C --> D[OLM executes InstallPlan]
+    D --> E[CSV (ClusterServiceVersion) installation starts]
+    
+    E --> F1[CRDs (CustomResourceDefinitions)\n• Example: lokistacks.loki.grafana.com\n• Extends Kubernetes API]
+    E --> F2[RBAC objects\n• ClusterRoles, RoleBindings, ServiceAccounts]
+    E --> F3[ConfigMaps\n• e.g. loki-operator-manager-config]
+    E --> F4[Deployments\n• e.g. loki-operator-controller-manager]
+    E --> F5[(Optional) Services / Webhooks / PodMonitors]
+    
+    F4 --> G[Deployment creates Operator Pod(s)]
+    G --> H[Pod mounts ConfigMap and starts successfully]
+    H --> I[Operator becomes active]
+    I --> J[Operator watches for CRDs it owns (e.g. LokiStack)]
+    J --> K[User or another component creates a Custom Resource (CR)]
+    K --> L[Operator reconciles CR → creates real workloads (e.g. Loki pods)]

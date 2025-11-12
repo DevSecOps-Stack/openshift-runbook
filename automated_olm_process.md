@@ -10,14 +10,14 @@ This guide explains how **OLM (Operator Lifecycle Manager)** handles Operator in
 
 ```mermaid
 flowchart TD
-    A[Subscription Created] --> B[OLM Creates InstallPlan]
-    B --> C[InstallPlan Approved (Manual or Auto)]
-    C --> D[OLM Executes InstallPlan → Creates CSV]
-    D --> E[CSV Installs CRDs, RBAC, Deployments]
-    E --> F[Operator Pod Starts]
-    F --> G[Operator Watches for CRDs]
-    G --> H[User Creates Custom Resource (CR)]
-    H --> I[Operator Reconciles CR → Deploys Workloads]
+    A["Subscription Created] --> B[OLM Creates InstallPlan"]
+    B --> C["InstallPlan Approved (Manual or Auto)"]
+    C --> D["OLM Executes InstallPlan → Creates CSV"]
+    D --> E["CSV Installs CRDs, RBAC, Deployments"]
+    E --> F["Operator Pod Starts"]
+    F --> G["Operator Watches for CRDs"]
+    G --> H["User Creates Custom Resource (CR)"]
+    H --> I["Operator Reconciles CR → Deploys Workloads"]
 ```
 
 ---

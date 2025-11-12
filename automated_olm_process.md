@@ -10,7 +10,7 @@ This guide explains how **OLM (Operator Lifecycle Manager)** handles Operator in
 
 ```mermaid
 flowchart TD
-    A["Subscription Created] --> B[OLM Creates InstallPlan"]
+    A["Subscription Created"] --> B[OLM Creates InstallPlan"]
     B --> C["InstallPlan Approved (Manual or Auto)"]
     C --> D["OLM Executes InstallPlan → Creates CSV"]
     D --> E["CSV Installs CRDs, RBAC, Deployments"]

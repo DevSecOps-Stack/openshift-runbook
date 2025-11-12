@@ -37,4 +37,3 @@ Operator watches for CRDs it owns (e.g. LokiStack)
 User or another component creates a Custom Resource (CR)
     ↓
 Operator reconciles the CR → creates real workloads (e.g. Loki pods)
-

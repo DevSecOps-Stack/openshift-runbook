@@ -56,10 +56,10 @@ Commit and raise a PR with the updated EFS ID.
 Run:
 
 ```bash
-oc get pvc -n <namespace>
+oc get storageclass efs-sc -oyaml
 ```
 
-Ensure PVCs bound successfully.
+Ensure efsFileSystemId: <correct-filesystem-id> changed accordingly
 
 Check ArgoCD:
 

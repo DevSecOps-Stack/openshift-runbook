@@ -8,6 +8,10 @@ spec:
   replicas: 1
   endpointPublishingStrategy:
     type: HostNetwork
+    hostNetwork:
+      httpPort: 80
+      httpsPort: 443
+      statsPort: 1936
   defaultCertificate:
     name: custom-wildcard-tls
   # Scopes this dedicated ingress controller strictly to namespaces labeled ingress=edge-app

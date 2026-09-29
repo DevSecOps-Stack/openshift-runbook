@@ -69,6 +69,47 @@ All resources are deployed using purely declarative YAML manifests:
 
 ---
 
+## 🔌 Ingress Port Binding & Port Remapping Architecture
+
+When deploying an `IngressController` with `type: HostNetwork`, understanding how host ports bind is critical:
+
+### 1. Default Standard Ports
+```yaml
+endpointPublishingStrategy:
+  type: HostNetwork
+  hostNetwork:
+    httpPort: 80         # Standard HTTP web port
+    httpsPort: 443       # Standard HTTPS TLS port
+    statsPort: 1936      # HAProxy internal metrics & socket port
+```
+
+### 2. The Port Conflict Trap on Single-Node OKD
+* On a Single-Node OKD cluster, the cluster's **`default`** IngressController is **already bound to host ports `80` and `443`**.
+* If a secondary controller (`edge-app-ingress`) also requests host ports `80` and `443` on that **same single VM**, Linux throws:  
+  `bind: address already in use` and the second router pod crashes!
+
+### 3. The Port Remapping Pattern (For Secondary Routers on SNO)
+To run a secondary sharded IngressController on the same node without collision, remap the ports:
+```yaml
+endpointPublishingStrategy:
+  type: HostNetwork
+  hostNetwork:
+    httpPort: 8080       # Remapped from 80
+    httpsPort: 8443      # Remapped from 443
+    statsPort: 1937      # Remapped from 1936
+```
+*(Clients then access the route on the remapped port: `https://edge-app.apps.okd-sno.brainybots.cloud:8443`)*
+
+### 4. How Enterprise Multi-Node Clusters Avoid Remapping (Cloud Load Balancer)
+In production AWS ROSA / GCP environments, enterprises do not remap ports. Instead, they use **`type: LoadBalancerService`**:
+```yaml
+endpointPublishingStrategy:
+  type: LoadBalancerService
+```
+The cloud provider automatically provisions a **dedicated Cloud Load Balancer (AWS NLB / GCP Forwarding Rule)** with its own separate External IP. Both ingress controllers listen on standard ports `80` and `443` simultaneously with zero conflict!
+
+---
+
 ## 🛠️ Step 1: OpenSSL Certificate Generation
 
 Generate a private Root CA and a wildcard certificate with Subject Alternative Name (SAN) extensions.

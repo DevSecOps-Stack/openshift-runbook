@@ -1,6 +1,6 @@
 # OpenShift 4 HAProxy Ingress Architecture & TLS Termination — Interview Cheat Sheet
 
-A comprehensive, high-yield guide to OpenShift Ingress internals, HAProxy zero-reload socket updates, and the 3 TLS termination models (Edge, Pass-Through, Re-encrypt).
+A comprehensive, high-yield guide to OpenShift Ingress internals, HAProxy zero-reload socket updates, TLS certificate anatomy, OpenSSL commands, and the 3 TLS termination models (Edge, Pass-Through, Re-encrypt).
 
 ---
 
@@ -67,6 +67,79 @@ In traditional HAProxy setups, adding a new backend pod required modifying `hapr
 
 ---
 
+## 🔐 The 3 Essential TLS Bundle Files (The Holy Trinity)
+
+To configure TLS anywhere in OpenShift or enterprise PKI, three files are required:
+
+| File Name | Standard K8s Key | Purpose & Contents | Who Holds It? |
+| :--- | :--- | :--- | :--- |
+| **`server.crt`** | `tls.crt` | **Public Identity & Cert Chain:** Contains the server's public key, Subject, Validity, Issuer signature, and SAN list. If signed by an intermediate CA, it must include the intermediate certs in order. | Publicly presented to any client connecting over TLS. |
+| **`private.key`** | `tls.key` | **Cryptographic Secret:** The server's private key (RSA 2048/4096 or ECDSA P-256). Proves ownership of the certificate and enables key exchange. | **Never shared!** Stored strictly in a secure K8s Secret. |
+| **`root-ca.crt`** | `ca.crt` | **The Trust Anchor:** The Certificate Authority root certificate used to verify that the server certificate is authentic and untampered. | Installed in client OS/Keychain/MDM, or configured in Route `destinationCACertificate`. |
+
+---
+
+## 🛠️ OpenSSL Commands: Generation, Signing & Verification
+
+### 1. Generate a Custom Root CA (Trust Anchor)
+```bash
+# Generate Root CA private key and self-signed certificate (valid 10 years)
+openssl req -x509 -new -nodes -newkey rsa:4096 \
+  -keyout root-ca.key \
+  -out root-ca.crt \
+  -days 3650 \
+  -subj "/C=AU/O=BrainyBots Enterprise/OU=Security/CN=BrainyBots Enterprise Root CA"
+```
+
+### 2. Generate Server Private Key & Certificate Signing Request (CSR)
+```bash
+# Generate server private key and CSR for wildcard domain
+openssl req -new -nodes -newkey rsa:2048 \
+  -keyout server.key \
+  -out server.csr \
+  -subj "/C=AU/O=BrainyBots Enterprise/CN=*.apps.okd-sno.brainybots.cloud"
+```
+
+### 3. Sign the Certificate with Modern SAN (Subject Alternative Name)
+Modern browsers (Chrome, Safari, Firefox) **reject** certificates that only use `CN`. You must provide an extension file with SAN:
+
+```bash
+# Create extensions file
+cat <<EOF > san.cnf
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = *.apps.okd-sno.brainybots.cloud
+DNS.2 = apps.okd-sno.brainybots.cloud
+EOF
+
+# Sign with Root CA
+openssl x509 -req -in server.csr \
+  -CA root-ca.crt -CAkey root-ca.key -CAcreateserial \
+  -out server.crt -days 365 -extfile san.cnf
+```
+
+### 4. Critical Diagnostic & Verification Commands (Interview Gold)
+```bash
+# A. Verify SAN and Expiry on a certificate:
+openssl x509 -in server.crt -text -noout | grep -A 2 "Subject Alternative Name"
+
+# B. Verify Private Key matches Certificate (Modulus MD5 Match):
+# If the MD5 hashes match, the private key belongs to the certificate!
+openssl x509 -noout -modulus -in server.crt | openssl md5
+openssl rsa -noout -modulus -in server.key  | openssl md5
+
+# C. Test live TLS handshake over the network with SNI:
+openssl s_client -connect router-ip:443 \
+  -servername hello.apps.okd-sno.brainybots.cloud \
+  -CAfile root-ca.crt
+```
+
+---
+
 ## 🔒 The 3 TLS Termination Modes (Side-by-Side Comparison)
 
 | Mode | Traffic: Client $\rightarrow$ Router | Traffic: Router $\rightarrow$ Pod | Certificate Location | Can Router Inspect HTTP Headers? | Primary Use Case |
@@ -74,6 +147,176 @@ In traditional HAProxy setups, adding a new backend pod required modifying `hapr
 | **Edge** | **HTTPS** (Encrypted) | **HTTP** (Plain text) | On the **Router / Route** (centralized secret) | **YES** (Path routing, cookie stickiness, header injection) | Standard internal microservices & public web apps |
 | **Pass-Through** | **HTTPS** (Encrypted) | **HTTPS** (Encrypted) | Strictly inside the **Backend Pod** | **NO** (L4 SNI TCP inspection only) | PCI-DSS banking data, mTLS between client & pod, custom protocols |
 | **Re-encrypt** | **HTTPS** (Encrypted) | **HTTPS** (Encrypted) | **Router** (Edge cert) + **Pod** (Internal cert & CA) | **YES** (Decrypts at router, inspects/modifies headers, re-encrypts) | Strict zero-trust enterprise compliance requiring end-to-end encryption + WAF/L7 features |
+
+---
+
+## 📦 How to Add TLS Bundles to Each Termination Type
+
+### 1. Adding TLS to EDGE Termination
+
+There are two enterprise patterns:
+
+#### Pattern A: Centralized Wildcard on IngressController (Enterprise Recommended)
+Dev teams don't manage certs. The platform team configures one wildcard certificate on the router:
+```bash
+# 1. Create TLS secret in openshift-ingress namespace
+oc create secret tls custom-wildcard-tls \
+  --cert=server.crt --key=server.key -n openshift-ingress
+
+# 2. Patch the IngressController CR
+oc patch ingresscontroller/default -n openshift-ingress-operator \
+  --type=merge -p '{"spec":{"defaultCertificate":{"name":"custom-wildcard-tls"}}}'
+```
+*Dev Route YAML (Zero cert configuration needed):*
+```yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: edge-app
+  namespace: my-app
+spec:
+  to:
+    kind: Service
+    name: edge-app-svc
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge    # Automatically inherits cluster wildcard cert!
+```
+
+#### Pattern B: Dedicated Cert on Route Object
+```yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: custom-edge-route
+  namespace: my-app
+spec:
+  to:
+    kind: Service
+    name: edge-app-svc
+  tls:
+    termination: edge
+    certificate: |-
+      -----BEGIN CERTIFICATE-----
+      MIID... (Contents of server.crt)
+      -----END CERTIFICATE-----
+    key: |-
+      -----BEGIN PRIVATE KEY-----
+      MIIE... (Contents of server.key)
+      -----END PRIVATE KEY-----
+    caCertificate: |-
+      -----BEGIN CERTIFICATE-----
+      MIIC... (Contents of root-ca.crt)
+      -----END CERTIFICATE-----
+```
+
+---
+
+### 2. Adding TLS to PASS-THROUGH Termination
+
+In Pass-Through, **the Route holds NO certificates**. The router acts as an L4 SNI pipe. The TLS bundle must be mounted directly into the **Backend Pod**.
+
+#### Step 1: Create TLS Secret in Application Namespace
+```bash
+oc create secret tls backend-app-tls \
+  --cert=server.crt --key=server.key -n my-app
+```
+
+#### Step 2: Mount Secret in Deployment
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: passthrough-app
+  namespace: my-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: web
+        image: my-secure-app:latest
+        ports:
+        - containerPort: 8443
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /etc/tls/certs
+          readOnly: true
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: backend-app-tls
+```
+
+#### Step 3: Create Pass-Through Route (No Certs on Route!)
+```yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: passthrough-route
+  namespace: my-app
+spec:
+  to:
+    kind: Service
+    name: passthrough-app-svc
+  port:
+    targetPort: 8443
+  tls:
+    termination: passthrough   # HAProxy forwards raw TLS stream via SNI
+```
+
+---
+
+### 3. Adding TLS to RE-ENCRYPT Termination
+
+Re-encrypt requires **two bundles**:
+1. **Frontend Bundle:** Served to the browser by HAProxy (from IngressController default cert or Route `spec.tls.certificate`).
+2. **Backend Bundle:** Served to HAProxy by the Pod on port 8443.
+
+#### Step 1: Auto-Generate Backend Pod Cert using OpenShift Service CA
+Add the Red Hat serving-cert annotation to your Service. OpenShift automatically issues an internal certificate and saves it into a Secret:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: reencrypt-svc
+  namespace: my-app
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: reencrypt-backend-tls
+spec:
+  ports:
+  - port: 8443
+    targetPort: 8443
+    name: https
+  selector:
+    app: reencrypt-app
+```
+
+#### Step 2: Mount `reencrypt-backend-tls` Secret in the Pod Deployment
+The pod mounts `/etc/tls/certs` and listens on HTTPS port 8443.
+
+#### Step 3: Create Re-encrypt Route with `destinationCACertificate`
+To allow HAProxy to trust the backend pod's internal certificate, provide the OpenShift Service CA bundle in `destinationCACertificate`:
+```yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: reencrypt-route
+  namespace: my-app
+spec:
+  to:
+    kind: Service
+    name: reencrypt-svc
+  port:
+    targetPort: https
+  tls:
+    termination: reencrypt
+    # Destination CA: Tells HAProxy to trust the pod's internal certificate
+    destinationCACertificate: |-
+      -----BEGIN CERTIFICATE-----
+      MIIC... (Contents of OpenShift Service CA: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt)
+      -----END CERTIFICATE-----
+```
 
 ---
 
@@ -126,3 +369,9 @@ To speak about Re-encrypt with principal-level precision, avoid loose shorthand:
 >   --type=merge -p '{"spec":{"defaultCertificate":{"name":"custom-wildcard-tls"}}}'
 > ```
 > The Ingress Operator mounts the secret across all router pods, securing all Edge and Re-encrypt routes automatically.
+
+### Q4: How do you verify that a private key matches a certificate before deploying it?
+> **Answer:** Extract the public modulus of both the certificate and the private key and compute their MD5 hash:
+> `openssl x509 -noout -modulus -in tls.crt | openssl md5`
+> `openssl rsa -noout -modulus -in tls.key | openssl md5`
+> If the two checksum hashes match, the private key mathematically matches the certificate. If they differ, the deployment will fail with SSL handshake errors.

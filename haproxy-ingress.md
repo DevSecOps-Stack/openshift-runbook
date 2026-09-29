@@ -77,6 +77,24 @@ In traditional HAProxy setups, adding a new backend pod required modifying `hapr
 
 ---
 
+## 🔬 Wire-Level Cryptographic Mechanics: Re-encrypt Deep Dive
+
+To speak about Re-encrypt with principal-level precision, avoid loose shorthand:
+
+1. **Two Independent TCP/TLS Connections (Not "one connection terminated twice"):**
+   * **Connection 1 (Client $\leftrightarrow$ HAProxy):** Handshake completes using the external/wildcard certificate. Terminated at HAProxy.
+   * **Connection 2 (HAProxy $\leftrightarrow$ Pod):** HAProxy acts as a TLS client, initiating a separate TCP 3-way handshake and TLS handshake to the pod IP on port 8443, validating the pod's cert against `destinationCACertificate` (Service CA). Terminated at the Pod.
+2. **Directional Traffic Keys (`client_write_key` vs `server_write_key`):**
+   * In modern TLS (1.2 / 1.3), a handshake does not use a single symmetric key for both directions (which would risk reflection attacks).
+   * It derives distinct **directional traffic keys**:
+     * Request path: Encrypted with `client_write_key`.
+     * Response path: Encrypted with `server_write_key`.
+3. **HTTP Protocol Reconstruction (Layer 7 Reverse Proxying):**
+   * HAProxy does not decrypt and re-encrypt raw packets.
+   * It terminates the incoming TCP/TLS stream, parses the bytes into a **clean HTTP request object in RAM**, modifies it (injecting `X-Forwarded-For: <client-ip>`, `X-Forwarded-Proto: https`, rewriting cookies), and **synthesizes a brand-new HTTP request** over Connection 2.
+
+---
+
 ## 🚨 Wire-Level Failure Modes & Signatures
 
 ### 1. `ERR_SSL_PROTOCOL_ERROR` (Browser Error)

@@ -5,6 +5,7 @@ metadata:
   namespace: demo-reencrypt
   labels:
     app: reencrypt-app
+    type: reencrypt
 spec:
   host: reencrypt-app.apps.okd-sno.brainybots.cloud
   to:

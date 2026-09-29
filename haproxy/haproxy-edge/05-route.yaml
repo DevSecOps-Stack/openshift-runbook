@@ -5,6 +5,7 @@ metadata:
   namespace: demo-edge
   labels:
     app: edge-app
+    type: edge
 spec:
   host: edge-app.apps.okd-sno.brainybots.cloud
   to:

@@ -1,10 +1,12 @@
-# HAProxy Pass-Through Termination — Hands-on Lab & Manifest Guide
+# HAProxy Pass-Through Termination (Sharded Ingress) — Hands-on Lab & Manifest Guide
 
 In **Pass-Through Termination**, the OpenShift HAProxy router does **not** decrypt the traffic. It operates as a pure **Layer 4 TCP proxy**, inspecting only the unencrypted **SNI (Server Name Indication)** field in the TLS `ClientHello` packet to route raw encrypted TCP packets straight to the backend pod.
 
+In this enterprise pattern, we deploy a **dedicated sharded `IngressController` CR** that isolates and routes traffic **only** for namespaces matching `ingress.traffic.type: passthrough` and routes matching `type: passthrough`.
+
 ```
-[ Browser / Client ] ────(HTTPS / Port 443)────► [ HAProxy Router ] ────(Raw Encrypted TLS)────► [ Backend Pod ]
-                                                   (L4 SNI Proxy)                                 (TLS Terminates Here)
+[ Browser / Client ] ────(HTTPS / Port 443)────► [ Sharded Ingress: passthrough-ingress ] ────(Raw Encrypted TLS)────► [ Backend Pod ]
+                                                   (Matches: ingress.traffic.type=passthrough)                              (TLS Terminates Here)
 ```
 
 ---
@@ -13,11 +15,12 @@ In **Pass-Through Termination**, the OpenShift HAProxy router does **not** decry
 
 | File | Purpose |
 | :--- | :--- |
-| [`00-namespace.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/00-namespace.yaml) | Dedicated `demo-passthrough` project namespace |
-| [`01-tls-secret.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/01-tls-secret.yaml) | Template for creating the application TLS Secret in the app namespace |
-| [`02-deployment.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/02-deployment.yaml) | Python HTTPS server listening on 8443 and mounting the TLS secret |
-| [`03-service.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/03-service.yaml) | Service targeting port 8443 (`protocol: TCP`) |
-| [`04-route.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/04-route.yaml) | Pass-Through route (**holds zero certificates**) |
+| [`00-namespace.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/00-namespace.yaml) | Project namespace with label `ingress.traffic.type: passthrough` |
+| [`01-tls-secret.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/01-tls-secret.yaml) | Template for application TLS Secret in the app namespace |
+| [`02-ingresscontroller.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/02-ingresscontroller.yaml) | **Full standalone IngressController CR** with `namespaceSelector` and `routeSelector` |
+| [`03-deployment.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/03-deployment.yaml) | Python HTTPS server listening on 8443 and mounting the TLS secret |
+| [`04-service.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/04-service.yaml) | Service targeting port 8443 (`protocol: TCP`) |
+| [`05-route.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/05-route.yaml) | Pass-Through route with label `type: passthrough` (**holds zero certificates**) |
 
 ---
 
@@ -52,7 +55,7 @@ openssl x509 -req -in passthrough.csr \
 
 ---
 
-## 🚀 Step 2: Deploy Workload Manifests
+## 🚀 Step 2: Pure Declarative Deployment Sequence
 
 ### 2.1 Create the Namespace
 ```bash
@@ -67,12 +70,19 @@ oc create secret tls passthrough-tls-secret \
   --key=passthrough.key \
   -n demo-passthrough
 ```
+*(Or populate base64 strings into `01-tls-secret.yaml` and run `oc apply -f 01-tls-secret.yaml`)*
 
-### 2.3 Deploy the HTTPS Backend & Route
+### 2.3 Deploy the Dedicated IngressController CR
 ```bash
-oc apply -f 02-deployment.yaml
-oc apply -f 03-service.yaml
-oc apply -f 04-route.yaml
+oc apply -f 02-ingresscontroller.yaml
+```
+*The Ingress Operator provisions a dedicated router deployment (`router-passthrough-ingress`) in `openshift-ingress`.*
+
+### 2.4 Deploy the HTTPS Backend & Route
+```bash
+oc apply -f 03-deployment.yaml
+oc apply -f 04-service.yaml
+oc apply -f 05-route.yaml
 ```
 
 ---
@@ -101,11 +111,11 @@ openssl s_client -connect <router-ip>:443 \
 
 Want to see what happens when a Pass-Through route points to a pod that only speaks plain HTTP?
 
-1. Update `02-deployment.yaml` to run a plain HTTP server on port 8080 (or edit `04-route.yaml` targetPort to an HTTP port).
+1. Update `03-deployment.yaml` to run a plain HTTP server on port 8080.
 2. Curl the route:
    ```bash
    curl -v https://passthrough-app.apps.okd-sno.brainybots.cloud
    ```
 3. **Observation:** Browser throws:
    `ERR_SSL_PROTOCOL_ERROR`
-4. **Why:** Browser sent a TLS `ClientHello`. The plain HTTP pod tried to parse binary TLS bytes as an HTTP GET string, crashed or closed the socket, and reset the TCP connection.
+4. **Why:** Browser sent a TLS `ClientHello`. The plain HTTP pod tried to parse binary TLS bytes as an HTTP GET string, failed, and reset the TCP connection.

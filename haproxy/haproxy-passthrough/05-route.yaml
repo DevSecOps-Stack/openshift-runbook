@@ -5,6 +5,7 @@ metadata:
   namespace: demo-passthrough
   labels:
     app: passthrough-app
+    type: passthrough
 spec:
   host: passthrough-app.apps.okd-sno.brainybots.cloud
   to:

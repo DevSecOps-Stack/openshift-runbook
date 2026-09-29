@@ -1,10 +1,12 @@
-# HAProxy Edge Termination — Hands-on Lab & Manifest Guide
+# HAProxy Edge Termination (Sharded Ingress) — Hands-on Lab & Manifest Guide
 
 In **Edge Termination**, client TLS encryption terminates at the OpenShift HAProxy router. Traffic between the router and the backend pod flows over the internal cluster SDN as unencrypted HTTP.
 
+In this enterprise pattern, we deploy a **custom sharded `IngressController` Custom Resource** that automatically isolates and routes traffic **only** for namespaces matching `ingress.traffic.type: edge` and routes matching `type: edge`, attaching the custom wildcard certificate automatically.
+
 ```
-[ Browser / Client ] ────(HTTPS / Port 443)────► [ HAProxy Router ] ────(Plain HTTP / Port 8080)────► [ Backend Pod ]
-                     (TLS Terminates Here)
+[ Browser / Client ] ────(HTTPS / Port 443)────► [ Sharded Ingress: edge-ingress ] ────(Plain HTTP / Port 8080)────► [ Backend Pod ]
+                     (TLS Terminates Here)          (Matches: ingress.traffic.type=edge)
 ```
 
 ---
@@ -13,11 +15,12 @@ In **Edge Termination**, client TLS encryption terminates at the OpenShift HAPro
 
 | File | Purpose |
 | :--- | :--- |
-| [`00-namespace.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/00-namespace.yaml) | Dedicated `demo-edge` project namespace |
-| [`01-ingresscontroller-wildcard.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/01-ingresscontroller-wildcard.yaml) | Attaches centralized wildcard TLS secret to HAProxy |
-| [`02-deployment.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/02-deployment.yaml) | 2-replica HTTP application pod (`quay.io/openshift/origin-hello-openshift`) |
-| [`03-service.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/03-service.yaml) | Service targeting container port 8080 |
-| [`04-route.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/04-route.yaml) | Edge route inheriting cluster wildcard certificate |
+| [`00-namespace.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/00-namespace.yaml) | Project namespace with label `ingress.traffic.type: edge` |
+| [`01-tls-secret.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/01-tls-secret.yaml) | Template for wildcard TLS secret in `openshift-ingress` |
+| [`02-ingresscontroller.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/02-ingresscontroller.yaml) | **Full standalone IngressController CR** with `namespaceSelector`, `routeSelector`, and `defaultCertificate` |
+| [`03-deployment.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/03-deployment.yaml) | 2-replica HTTP application pod (`quay.io/openshift/origin-hello-openshift`) |
+| [`04-service.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/04-service.yaml) | Service targeting container port 8080 |
+| [`05-route.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/05-route.yaml) | Clean Edge route with label `type: edge` (inherits wildcard cert) |
 
 ---
 
@@ -67,41 +70,44 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 
 ---
 
-## 🚀 Step 2: Deploy Platform & Workload Manifests
+## 🚀 Step 2: Pure Declarative Deployment Sequence
 
-### 2.1 Create the Centralized Wildcard Secret in `openshift-ingress`
+No CLI patch commands required. Apply all manifests declaratively:
+
+### 2.1 Create the Wildcard Secret in `openshift-ingress`
 ```bash
 oc create secret tls custom-wildcard-tls \
   --cert=server.crt \
   --key=server.key \
   -n openshift-ingress
 ```
+*(Or populate base64 strings into `01-tls-secret.yaml` and run `oc apply -f 01-tls-secret.yaml`)*
 
-### 2.2 Patch the IngressController
-Apply [`01-ingresscontroller-wildcard.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-edge/01-ingresscontroller-wildcard.yaml):
+### 2.2 Deploy the Sharded IngressController CR
 ```bash
-oc patch ingresscontroller/default -n openshift-ingress-operator \
-  --type=merge --patch-file 01-ingresscontroller-wildcard.yaml
+oc apply -f 02-ingresscontroller.yaml
 ```
-*The Ingress Operator updates the HAProxy deployment in `openshift-ingress` to mount and serve this certificate for all Edge routes.*
+*The Ingress Operator automatically provisions a dedicated secondary HAProxy router deployment (`router-edge-ingress`) in `openshift-ingress`.*
 
 ### 2.3 Deploy the Edge Application Stack
-Apply the namespace, deployment, service, and route:
 ```bash
 oc apply -f 00-namespace.yaml
-oc apply -f 02-deployment.yaml
-oc apply -f 03-service.yaml
-oc apply -f 04-route.yaml
+oc apply -f 03-deployment.yaml
+oc apply -f 04-service.yaml
+oc apply -f 05-route.yaml
 ```
 
 ---
 
 ## 🔍 Step 3: Verification & Diagnostics
 
-### 3.1 Verify Route and Pod Readiness
+### 3.1 Verify Sharded Router and Route Readiness
 ```bash
-oc get pods -n demo-edge
-oc get route edge-app-route -n demo-edge
+# Check the dedicated router deployment
+oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=edge-ingress
+
+# Check the application pods and route
+oc get pods,route -n demo-edge
 ```
 
 ### 3.2 Test HTTPS with cURL

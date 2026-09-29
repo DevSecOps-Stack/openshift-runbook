@@ -1,0 +1,20 @@
+apiVersion: operator.openshift.io/v1
+kind: IngressController
+metadata:
+  name: reencrypt-ingress
+  namespace: openshift-ingress-operator
+spec:
+  domain: reencrypt.apps.okd-sno.brainybots.cloud
+  replicas: 1
+  endpointPublishingStrategy:
+    type: HostNetwork
+  defaultCertificate:
+    name: custom-wildcard-tls
+  # Sharding: Only route traffic for namespaces with this label
+  namespaceSelector:
+    matchLabels:
+      ingress.traffic.type: reencrypt
+  # Sharding: Only route traffic for routes with this label
+  routeSelector:
+    matchLabels:
+      type: reencrypt

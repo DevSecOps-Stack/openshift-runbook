@@ -2,11 +2,11 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: edge-app-route
-  namespace: demo-testapp-edge
+  namespace: edge-app
   labels:
     app: edge-app
 spec:
-  host: edge-app.testapp-edge.apps.okd-sno.brainybots.cloud
+  host: edge-app.apps.okd-sno.brainybots.cloud
   to:
     kind: Service
     name: edge-app-svc

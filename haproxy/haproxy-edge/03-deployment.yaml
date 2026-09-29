@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: edge-app
-  namespace: demo-testapp-edge
+  namespace: edge-app
   labels:
     app: edge-app
 spec:

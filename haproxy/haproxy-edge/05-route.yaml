@@ -6,7 +6,7 @@ metadata:
   labels:
     app: edge-app
 spec:
-  host: edge-app.apps.okd-sno.brainybots.cloud
+  host: app.edge-app.apps.okd-sno.brainybots.cloud
   to:
     kind: Service
     name: edge-app-svc

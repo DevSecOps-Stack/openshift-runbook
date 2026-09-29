@@ -1,12 +1,12 @@
-# HAProxy Pass-Through Termination (Sharded Ingress) — Hands-on Lab & Manifest Guide
+# HAProxy Pass-Through Termination (Dedicated IngressController) — Hands-on Lab & Manifest Guide
 
 In **Pass-Through Termination**, the OpenShift HAProxy router does **not** decrypt the traffic. It operates as a pure **Layer 4 TCP proxy**, inspecting only the unencrypted **SNI (Server Name Indication)** field in the TLS `ClientHello` packet to route raw encrypted TCP packets straight to the backend pod.
 
-In this enterprise pattern, we deploy a **dedicated sharded `IngressController` CR** that isolates and routes traffic **only** for namespaces matching `ingress.traffic.type: passthrough` and routes matching `type: passthrough`.
+In this enterprise pattern, we deploy a **dedicated `IngressController` CR** scoped to the application via `namespaceSelector: matchLabels: ingress: testapp-passthrough`. The namespace is labeled `ingress=testapp-passthrough`, and the router forwards raw TCP packets directly to the HTTPS backend pod without decrypting.
 
 ```
-[ Browser / Client ] ────(HTTPS / Port 443)────► [ Sharded Ingress: passthrough-ingress ] ────(Raw Encrypted TLS)────► [ Backend Pod ]
-                                                   (Matches: ingress.traffic.type=passthrough)                              (TLS Terminates Here)
+[ Browser / Client ] ────(HTTPS / Port 443)────► [ Dedicated Ingress: testapp-passthrough-ingress ] ────(Raw Encrypted TLS)────► [ Backend Pod ]
+                                                   (Matches namespace label: ingress=testapp-passthrough)                  (TLS Terminates Here)
 ```
 
 ---
@@ -15,25 +15,25 @@ In this enterprise pattern, we deploy a **dedicated sharded `IngressController` 
 
 | File | Purpose |
 | :--- | :--- |
-| [`00-namespace.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/00-namespace.yaml) | Project namespace with label `ingress.traffic.type: passthrough` |
+| [`00-namespace.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/00-namespace.yaml) | Application namespace labeled `ingress: testapp-passthrough` |
 | [`01-tls-secret.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/01-tls-secret.yaml) | Template for application TLS Secret in the app namespace |
-| [`02-ingresscontroller.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/02-ingresscontroller.yaml) | **Full standalone IngressController CR** with `namespaceSelector` and `routeSelector` |
+| [`02-ingresscontroller.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/02-ingresscontroller.yaml) | **Dedicated IngressController CR** with `namespaceSelector: matchLabels: ingress: testapp-passthrough` |
 | [`03-deployment.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/03-deployment.yaml) | Python HTTPS server listening on 8443 and mounting the TLS secret |
-| [`04-service.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/04-service.yaml) | Service targeting port 8443 (`protocol: TCP`) |
-| [`05-route.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/05-route.yaml) | Pass-Through route with label `type: passthrough` (**holds zero certificates**) |
+| [`04-service.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/04-service.yaml) | ClusterIP service targeting port 8443 (`protocol: TCP`) |
+| [`05-route.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-passthrough/05-route.yaml) | Pass-Through route (**holds zero certificates**) |
 
 ---
 
 ## 🛠️ Step 1: OpenSSL Certificate Generation for the Pod
 
-Since the pod terminates TLS, the certificate must be signed for the pod's route domain: `passthrough-app.apps.okd-sno.brainybots.cloud`.
+Since the pod terminates TLS, the certificate must be signed for the pod's route domain: `passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud`.
 
 ### 1.1 Generate Pod Private Key and CSR
 ```bash
 openssl req -new -nodes -newkey rsa:2048 \
   -keyout passthrough.key \
   -out passthrough.csr \
-  -subj "/C=AU/O=BrainyBots Enterprise/CN=passthrough-app.apps.okd-sno.brainybots.cloud"
+  -subj "/C=AU/O=BrainyBots Enterprise/CN=passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud"
 ```
 
 ### 1.2 Sign the Pod Cert with your Root CA
@@ -45,7 +45,7 @@ keyUsage = digitalSignature, keyEncipherment
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1 = passthrough-app.apps.okd-sno.brainybots.cloud
+DNS.1 = passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
 EOF
 
 openssl x509 -req -in passthrough.csr \
@@ -62,21 +62,20 @@ openssl x509 -req -in passthrough.csr \
 oc apply -f 00-namespace.yaml
 ```
 
-### 2.2 Create the TLS Secret inside `demo-passthrough`
+### 2.2 Create the TLS Secret inside `demo-testapp-passthrough`
 The router does **not** get this secret; it is mounted directly into the backend pod:
 ```bash
 oc create secret tls passthrough-tls-secret \
   --cert=passthrough.crt \
   --key=passthrough.key \
-  -n demo-passthrough
+  -n demo-testapp-passthrough
 ```
-*(Or populate base64 strings into `01-tls-secret.yaml` and run `oc apply -f 01-tls-secret.yaml`)*
 
 ### 2.3 Deploy the Dedicated IngressController CR
 ```bash
 oc apply -f 02-ingresscontroller.yaml
 ```
-*The Ingress Operator provisions a dedicated router deployment (`router-passthrough-ingress`) in `openshift-ingress`.*
+*The Ingress Operator provisions a dedicated router deployment (`router-testapp-passthrough-ingress`) in `openshift-ingress`.*
 
 ### 2.4 Deploy the HTTPS Backend & Route
 ```bash
@@ -91,7 +90,7 @@ oc apply -f 05-route.yaml
 
 ### 3.1 Test HTTPS with cURL
 ```bash
-curl -v https://passthrough-app.apps.okd-sno.brainybots.cloud
+curl -v https://passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
 ```
 *Expected Output:*
 * Returns `Hello from Pass-Through Secure Backend Pod!`
@@ -101,7 +100,7 @@ curl -v https://passthrough-app.apps.okd-sno.brainybots.cloud
 To prove that HAProxy routes purely on the SNI header:
 ```bash
 openssl s_client -connect <router-ip>:443 \
-  -servername passthrough-app.apps.okd-sno.brainybots.cloud \
+  -servername passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud \
   -CAfile root-ca.crt
 ```
 
@@ -114,7 +113,7 @@ Want to see what happens when a Pass-Through route points to a pod that only spe
 1. Update `03-deployment.yaml` to run a plain HTTP server on port 8080.
 2. Curl the route:
    ```bash
-   curl -v https://passthrough-app.apps.okd-sno.brainybots.cloud
+   curl -v https://passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
    ```
 3. **Observation:** Browser throws:
    `ERR_SSL_PROTOCOL_ERROR`

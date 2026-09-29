@@ -2,12 +2,11 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: passthrough-app-route
-  namespace: demo-passthrough
+  namespace: demo-testapp-passthrough
   labels:
     app: passthrough-app
-    type: passthrough
 spec:
-  host: passthrough-app.apps.okd-sno.brainybots.cloud
+  host: passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
   to:
     kind: Service
     name: passthrough-app-svc

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: passthrough-app-svc
-  namespace: demo-passthrough
+  namespace: demo-testapp-passthrough
   labels:
     app: passthrough-app
 spec:

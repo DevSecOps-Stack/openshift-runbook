@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: passthrough-app
-  namespace: demo-passthrough
+  namespace: demo-testapp-passthrough
   labels:
     app: passthrough-app
 spec:

@@ -2,12 +2,11 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: reencrypt-app-route
-  namespace: demo-reencrypt
+  namespace: demo-testapp-reencrypt
   labels:
     app: reencrypt-app
-    type: reencrypt
 spec:
-  host: reencrypt-app.apps.okd-sno.brainybots.cloud
+  host: reencrypt-app.testapp-reencrypt.apps.okd-sno.brainybots.cloud
   to:
     kind: Service
     name: reencrypt-app-svc

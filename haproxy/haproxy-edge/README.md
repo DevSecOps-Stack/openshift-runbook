@@ -5,8 +5,51 @@ In **Edge Termination**, client TLS encryption terminates at the OpenShift HAPro
 In this enterprise pattern, we deploy a **dedicated `IngressController` Custom Resource** scoped to our application via `namespaceSelector: matchLabels: ingress: edge-app`. The namespace is labeled `ingress=edge-app`, and the dedicated router handles all routes inside that namespace automatically.
 
 ```
-[ Browser / Client ] ────(HTTPS / Port 443)────► [ Dedicated Ingress: edge-app-ingress ] ────(Plain HTTP / Port 8080)────► [ Backend Pod ]
-                     (TLS Terminates Here)           (Matches namespace label: ingress=edge-app)
+1. USER / BROWSER
+   Types: https://edge-app.apps.okd-sno.brainybots.cloud
+         │
+         ▼
+2. DNS RESOLUTION (Google Cloud DNS / AWS Route 53)
+   *.apps.okd-sno.brainybots.cloud  ──►  Resolves to Load Balancer External IP (e.g. 34.68.120.45)
+         │
+         ▼
+3. CLOUD INFRASTRUCTURE (GCP Forwarding Rule / AWS Network Load Balancer)
+   Listens on Port 80 / 443  ──►  Forwards raw TCP stream to Ingress Node
+         │
+         ▼
+4. DATA PLANE: OPENSHIFT INGRESS (openshift-ingress namespace)
+┌────────────────────────────────────────────────────────────────────────┐
+│ Ingress Node (Host Port 80 / 443)                                      │
+│   │                                                                    │
+│   ▼                                                                    │
+│ HAProxy Router Pod (router-edge-app-ingress-xxxx)                      │
+│   • Terminates TLS using 'custom-wildcard-tls' Secret                  │
+│   • Matches Host Header: edge-app.apps.okd-sno.brainybots.cloud        │
+│   • In-pod Go controller watches EndpointSlices via UNIX socket        │
+│                                                                        │
+│   (Bypasses kube-proxy; routes directly to pod IP for ultra-low latency)│
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼ (Over OVN-Kubernetes SDN)
+5. SERVICE ABSTRACTION & BACKEND POD (edge-app namespace)
+┌────────────────────────────────────────────────────────────────────────┐
+│ Kubernetes Service: edge-app-svc                                       │
+│   (Logical selector template: selects pods with label app=edge-app)    │
+│                                                                        │
+│   ┌──────────────────────────────────────────────────────────────┐     │
+│   │ Application Pod: edge-app-xxxx (Pod IP: 10.128.2.45:8080)    │     │
+│   │ Container receives plain HTTP request                        │     │
+│   │ Responds: HTTP/1.1 200 OK ("Hello OpenShift!")               │     │
+│   └──────────────────────────────────────────────────────────────┘     │
+└───────────────────────────────────▲────────────────────────────────────┘
+                                    │
+                                    │ Managed & Reconciled By
+┌───────────────────────────────────┴────────────────────────────────────┐
+│ CONTROL PLANE (openshift-ingress-operator namespace)                   │
+│   • Ingress Operator Pod: ingress-operator-xxxx                        │
+│   • IngressController CR: edge-app-ingress                             │
+│     (Selects namespace labeled: ingress=edge-app)                      │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---

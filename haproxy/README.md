@@ -15,33 +15,53 @@ A comprehensive, master reference manual on OpenShift Ingress internals, in-pod 
 In OpenShift, Ingress is cleanly decoupled into two separate namespaces:
 
 ```
-Internet / User Traffic
-           │
-           ▼
+1. USER / BROWSER
+   Types: https://edge-app.apps.okd-sno.brainybots.cloud
+         │
+         ▼
+2. DNS RESOLUTION (Google Cloud DNS / AWS Route 53)
+   *.apps.okd-sno.brainybots.cloud  ──►  Resolves to Load Balancer External IP (e.g. 34.68.120.45)
+         │
+         ▼
+3. CLOUD INFRASTRUCTURE (GCP Forwarding Rule / AWS Network Load Balancer)
+   Listens on Port 80 / 443  ──►  Forwards raw TCP stream to Ingress Node
+         │
+         ▼
+4. DATA PLANE: OPENSHIFT INGRESS (openshift-ingress namespace)
 ┌────────────────────────────────────────────────────────────────────────┐
-│ GCP Forwarding Rule / AWS Network Load Balancer (Port 80/443)         │
-└────────────────────────────────────┬───────────────────────────────────┘
-                                     │
-                                     ▼
+│ Ingress Node (Host Port 80 / 443)                                      │
+│   │                                                                    │
+│   ▼                                                                    │
+│ HAProxy Router Pod (router-edge-app-ingress-xxxx)                      │
+│   • Terminates TLS using 'custom-wildcard-tls' Secret                  │
+│   • Matches Host Header: edge-app.apps.okd-sno.brainybots.cloud        │
+│   • In-pod Go controller watches EndpointSlices via UNIX socket        │
+│                                                                        │
+│   (Bypasses kube-proxy; routes directly to pod IP for ultra-low latency)│
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼ (Over OVN-Kubernetes SDN)
+5. SERVICE ABSTRACTION & BACKEND POD (edge-app namespace)
 ┌────────────────────────────────────────────────────────────────────────┐
-│ DATA PLANE (openshift-ingress namespace)                               │
+│ Kubernetes Service: edge-app-svc                                       │
+│   (Logical selector template: selects pods with label app=edge-app)    │
 │                                                                        │
-│   • The Router Pods: router-default-xxxx, router-edge-app-ingress-xxxx │
-│   • The Router Services: Expose ports 80 and 443                       │
-│   • The TLS Secrets: custom-wildcard-tls                               │
-│                                                                        │
-│   (Faces the untrusted internet; runs with restricted, non-root SCC)   │
-└────────────────────────────────────▲───────────────────────────────────┘
-                                     │ Managed & Reconciled By
-┌────────────────────────────────────┴───────────────────────────────────┐
+│   ┌──────────────────────────────────────────────────────────────┐     │
+│   │ Application Pod: edge-app-xxxx (Pod IP: 10.128.2.45:8080)    │     │
+│   │ Container receives plain HTTP request                        │     │
+│   │ Responds: HTTP/1.1 200 OK ("Hello OpenShift!")               │     │
+│   └──────────────────────────────────────────────────────────────┘     │
+└───────────────────────────────────▲────────────────────────────────────┘
+                                    │
+                                    │ Managed & Reconciled By
+┌───────────────────────────────────┴────────────────────────────────────┐
 │ CONTROL PLANE (openshift-ingress-operator namespace)                   │
-│                                                                        │
-│   • The Ingress Operator Pod: ingress-operator-xxxx                    │
-│   • The Custom Resources: IngressController/default, edge-app-ingress   │
-│                                                                        │
-│   (Cluster-admin privileges; provisions Cloud LBs, DNS & Deployments)  │
+│   • Ingress Operator Pod: ingress-operator-xxxx                        │
+│   • IngressController CR: edge-app-ingress                             │
+│     (Selects namespace labeled: ingress=edge-app)                      │
 └────────────────────────────────────────────────────────────────────────┘
 ```
+
 
 ### Why Did Red Hat Split Them?
 * **Security & Blast Radius:** If an attacker finds a zero-day remote code execution flaw in HAProxy from the public internet, they are trapped inside the unprivileged router container in `openshift-ingress`. They cannot access the cluster-admin credentials of the operator in `openshift-ingress-operator`.

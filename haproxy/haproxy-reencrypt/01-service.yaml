@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: reencrypt-app-svc
+  namespace: demo-reencrypt
+  labels:
+    app: reencrypt-app
+  annotations:
+    # OpenShift internal Service CA detects this annotation and automatically
+    # creates and populates a TLS Secret named 'reencrypt-backend-tls'!
+    service.beta.openshift.io/serving-cert-secret-name: reencrypt-backend-tls
+spec:
+  type: ClusterIP
+  selector:
+    app: reencrypt-app
+  ports:
+  - name: https
+    port: 8443
+    targetPort: 8443
+    protocol: TCP

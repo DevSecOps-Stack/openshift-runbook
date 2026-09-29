@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reencrypt-app
+  namespace: demo-reencrypt
+  labels:
+    app: reencrypt-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reencrypt-app
+  template:
+    metadata:
+      labels:
+        app: reencrypt-app
+    spec:
+      containers:
+      - name: https-backend
+        image: python:3.9-slim
+        command:
+        - python3
+        - -c
+        - |
+          import http.server, ssl
+
+          class Handler(http.server.SimpleHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200)
+                  self.send_header("Content-type", "text/plain")
+                  self.end_headers()
+                  self.wfile.write(b"Hello from Re-encrypt Secure Pod (Encrypted over internal SDN)!\n")
+
+          server_address = ('0.0.0.0', 8443)
+          httpd = http.server.HTTPServer(server_address, Handler)
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          ctx.load_cert_chain('/var/run/secrets/tls/tls.crt', '/var/run/secrets/tls/tls.key')
+          httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+          print("Internal Secure HTTPS Backend listening on port 8443...")
+          httpd.serve_forever()
+        ports:
+        - name: https
+          containerPort: 8443
+          protocol: TCP
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /var/run/secrets/tls
+          readOnly: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: reencrypt-backend-tls  # Auto-created by OpenShift Service CA

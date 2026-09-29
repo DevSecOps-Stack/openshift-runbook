@@ -1,0 +1,17 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: passthrough-app-route
+  namespace: demo-passthrough
+  labels:
+    app: passthrough-app
+spec:
+  host: passthrough-app.apps.okd-sno.brainybots.cloud
+  to:
+    kind: Service
+    name: passthrough-app-svc
+    weight: 100
+  port:
+    targetPort: https
+  tls:
+    termination: passthrough

@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: passthrough-app
+  namespace: demo-passthrough
+  labels:
+    app: passthrough-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: passthrough-app
+  template:
+    metadata:
+      labels:
+        app: passthrough-app
+    spec:
+      containers:
+      - name: https-server
+        image: python:3.9-slim
+        command:
+        - python3
+        - -c
+        - |
+          import http.server, ssl
+
+          class Handler(http.server.SimpleHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200)
+                  self.send_header("Content-type", "text/plain")
+                  self.end_headers()
+                  self.wfile.write(b"Hello from Pass-Through Secure Backend Pod!\n")
+
+          server_address = ('0.0.0.0', 8443)
+          httpd = http.server.HTTPServer(server_address, Handler)
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          ctx.load_cert_chain('/etc/tls/certs/tls.crt', '/etc/tls/certs/tls.key')
+          httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+          print("Secure HTTPS Server listening on port 8443...")
+          httpd.serve_forever()
+        ports:
+        - name: https
+          containerPort: 8443
+          protocol: TCP
+        volumeMounts:
+        - name: cert-volume
+          mountPath: /etc/tls/certs
+          readOnly: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+      volumes:
+      - name: cert-volume
+        secret:
+          secretName: passthrough-tls-secret

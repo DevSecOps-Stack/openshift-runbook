@@ -1,0 +1,24 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: reencrypt-app-route
+  namespace: demo-reencrypt
+  labels:
+    app: reencrypt-app
+spec:
+  host: reencrypt-app.apps.okd-sno.brainybots.cloud
+  to:
+    kind: Service
+    name: reencrypt-app-svc
+    weight: 100
+  port:
+    targetPort: https
+  tls:
+    termination: reencrypt
+    # In OpenShift, when certificates are issued by the cluster's internal Service CA,
+    # the router automatically trusts them by default.
+    # To specify an explicit internal enterprise CA, populate destinationCACertificate:
+    # destinationCACertificate: |-
+    #   -----BEGIN CERTIFICATE-----
+    #   MIIC... (Contents of OpenShift Service CA)
+    #   -----END CERTIFICATE-----

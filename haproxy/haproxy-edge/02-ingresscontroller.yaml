@@ -4,7 +4,7 @@ metadata:
   name: edge-app-ingress
   namespace: openshift-ingress-operator
 spec:
-  domain: apps.okd-sno.brainybots.cloud
+  domain: edge-app.apps.okd-sno.brainybots.cloud
   replicas: 1
   endpointPublishingStrategy:
     type: HostNetwork

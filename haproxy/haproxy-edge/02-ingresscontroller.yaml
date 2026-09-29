@@ -4,17 +4,14 @@ metadata:
   name: edge-app-ingress
   namespace: openshift-ingress-operator
 spec:
-  domain: edge-app.apps.okd-sno.brainybots.cloud
   replicas: 1
-  endpointPublishingStrategy:
-    type: HostNetwork
-    hostNetwork:
-      httpPort: 8080
-      httpsPort: 8443
-      statsPort: 1937
+  domain: edge-app.apps.okd-sno.brainybots.cloud
   defaultCertificate:
     name: custom-wildcard-tls
-  # Scopes this dedicated ingress controller strictly to namespaces labeled ingress=edge-app
   namespaceSelector:
     matchLabels:
       ingress: edge-app
+  endpointPublishingStrategy:
+    type: LoadBalancerService
+    loadBalancer:
+      scope: External

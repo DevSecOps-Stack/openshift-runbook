@@ -96,7 +96,7 @@ oc apply -f 05-route.yaml
 
 ### 3.1 Test HTTPS with cURL
 ```bash
-curl -v https://passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
+curl -v --cacert certs/root-ca.crt https://passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
 ```
 *Expected Output:*
 * Returns `Hello from Pass-Through Secure Backend Pod!`
@@ -105,10 +105,13 @@ curl -v https://passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.clou
 ### 3.2 Verify SNI Routing with OpenSSL `s_client`
 To prove that HAProxy routes purely on the SNI header:
 ```bash
-openssl s_client -connect <router-ip>:443 \
+echo | openssl s_client -connect passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud:443 \
   -servername passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud \
-  -CAfile root-ca.crt
+  -CAfile certs/root-ca.crt 2>/dev/null | openssl x509 -noout -subject -issuer
 ```
+*Expected Output:*
+* `subject=C=AU, O=BrainyBots Enterprise, CN=passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud`
+* `issuer=C=AU, O=BrainyBots Enterprise, OU=Security, CN=BrainyBots Enterprise Root CA`
 
 ---
 

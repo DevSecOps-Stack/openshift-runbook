@@ -24,9 +24,12 @@ In this enterprise pattern, we deploy a **dedicated `IngressController` CR** sco
 
 ---
 
-## 🛠️ Step 1: OpenSSL Certificate Generation for the Pod
+## 🛠️ Step 1: Certificate Generation for the Pod
 
-Since the pod terminates TLS, the certificate must be signed for the pod's route domain: `passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud`.
+Since the pod terminates TLS directly, the certificate must be signed for the pod's route domain: `passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud`.
+
+> [!TIP]
+> **One-Command Shortcut:** Run `./generate-certs.sh` to generate the pod key, CSR, sign it with `root-ca.crt`, and automatically populate `01-tls-secret.yaml`.
 
 ### 1.1 Generate Pod Private Key and CSR
 ```bash
@@ -42,10 +45,12 @@ cat <<EOF > passthrough-san.cnf
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
 subjectAltName = @alt_names
 
 [alt_names]
 DNS.1 = passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
+DNS.2 = *.testapp-passthrough.apps.okd-sno.brainybots.cloud
 EOF
 
 openssl x509 -req -in passthrough.csr \
@@ -57,6 +62,10 @@ openssl x509 -req -in passthrough.csr \
 
 ## 🚀 Step 2: Pure Declarative Deployment Sequence
 
+> [!IMPORTANT]
+> **SNO Ingress Architecture (LoadBalancerService vs HostNetwork):**
+> On Single-Node OpenShift (SNO), using `endpointPublishingStrategy: type: HostNetwork` will cause an instant port collision on 80/443 with `router-default`. We configure `type: LoadBalancerService` with `scope: External` so GCP provisions a dedicated Cloud Network Load Balancer IP and automatically updates Cloud DNS.
+
 ### 2.1 Create the Namespace
 ```bash
 oc apply -f 00-namespace.yaml
@@ -65,17 +74,14 @@ oc apply -f 00-namespace.yaml
 ### 2.2 Create the TLS Secret inside `demo-testapp-passthrough`
 The router does **not** get this secret; it is mounted directly into the backend pod:
 ```bash
-oc create secret tls passthrough-tls-secret \
-  --cert=passthrough.crt \
-  --key=passthrough.key \
-  -n demo-testapp-passthrough
+oc apply -f 01-tls-secret.yaml
 ```
 
 ### 2.3 Deploy the Dedicated IngressController CR
 ```bash
 oc apply -f 02-ingresscontroller.yaml
 ```
-*The Ingress Operator provisions a dedicated router deployment (`router-testapp-passthrough-ingress`) in `openshift-ingress`.*
+*The Ingress Operator provisions a dedicated router deployment (`router-testapp-passthrough-ingress`) in `openshift-ingress` and GCP provisions an external forwarding rule.*
 
 ### 2.4 Deploy the HTTPS Backend & Route
 ```bash

@@ -7,7 +7,9 @@ spec:
   domain: testapp-passthrough.apps.okd-sno.brainybots.cloud
   replicas: 1
   endpointPublishingStrategy:
-    type: HostNetwork
+    type: LoadBalancerService
+    loadBalancer:
+      scope: External
   # Enterprise Sharding: Dedicate this ingress controller to namespaces labeled ingress=testapp-passthrough
   namespaceSelector:
     matchLabels:

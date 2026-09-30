@@ -78,7 +78,10 @@ All resources are deployed using purely declarative YAML manifests:
 
 ## 🛠️ Step 1: OpenSSL Certificate Generation
 
-Generate a private Root CA and a wildcard certificate with Subject Alternative Name (SAN) extensions.
+Generate a private Root CA and a wildcard certificate with Subject Alternative Name (SAN) extensions covering both the primary apps domain and the dedicated application subdomain.
+
+> [!TIP]
+> **One-Command Shortcut:** Run `./generate-certs.sh` to generate the CA, server certificates, bundle `fullchain.crt`, and populate `01-tls-secret.yaml` in one step.
 
 ### 1.1 Generate Root CA (The Trust Anchor)
 ```bash
@@ -97,38 +100,49 @@ openssl req -new -nodes -newkey rsa:2048 \
   -subj "/C=AU/O=BrainyBots Enterprise/CN=*.apps.okd-sno.brainybots.cloud"
 ```
 
-### 1.3 Create SAN Config and Sign the Certificate
+### 1.3 Create Multi-SAN Config and Sign the Certificate
+Wildcards in TLS (RFC 6125) do NOT cross dot boundaries (e.g. `*.apps...` does not match `app.edge-app.apps...`). We must explicitly include the nested subdomain in SAN:
+
 ```bash
 cat <<EOF > san.cnf
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
 subjectAltName = @alt_names
 
 [alt_names]
 DNS.1 = *.apps.okd-sno.brainybots.cloud
 DNS.2 = apps.okd-sno.brainybots.cloud
+DNS.3 = *.edge-app.apps.okd-sno.brainybots.cloud
+DNS.4 = app.edge-app.apps.okd-sno.brainybots.cloud
 EOF
 
 openssl x509 -req -in server.csr \
   -CA root-ca.crt -CAkey root-ca.key -CAcreateserial \
   -out server.crt -days 365 -extfile san.cnf
+
+# Bundle complete verification chain
+cat server.crt root-ca.crt > fullchain.crt
 ```
 
 ### 1.4 Add Root CA to macOS Keychain (One Command for 🔒 Green Padlock)
 ```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain root-ca.crt
+sudo security add-trusted-cert -d -r trustRoot -p ssl -k /Library/Keychains/System.keychain root-ca.crt
 ```
+
+> [!IMPORTANT]
+> **Clear Browser TLS Cache:** After running the command above, **fully Quit Google Chrome / Safari (`Cmd + Q`)** and relaunch it. Browsers cache existing TLS trust evaluations in their active socket pool.
 
 ---
 
 ## 🚀 Step 2: Pure Declarative YAML Apply Sequence
 
 ### 2.1 Prepare the Secret YAML
-Base64 encode the generated certificate and key into `01-tls-secret.yaml`:
+Base64 encode the complete certificate chain and key into `01-tls-secret.yaml`:
 ```bash
-# Populate 01-tls-secret.yaml with your base64 strings:
-sed -i '' "s|tls.crt: \"\"|tls.crt: \"$(cat server.crt | base64 | tr -d '\n')\"|g" 01-tls-secret.yaml
+# Populate 01-tls-secret.yaml with fullchain and key:
+sed -i '' "s|tls.crt: \"\"|tls.crt: \"$(cat fullchain.crt | base64 | tr -d '\n')\"|g" 01-tls-secret.yaml
 sed -i '' "s|tls.key: \"\"|tls.key: \"$(cat server.key | base64 | tr -d '\n')\"|g" 01-tls-secret.yaml
 ```
 

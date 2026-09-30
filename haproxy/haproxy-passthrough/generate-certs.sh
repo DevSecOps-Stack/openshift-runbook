@@ -41,8 +41,7 @@ extendedKeyUsage = serverAuth
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1 = passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud
-DNS.2 = *.testapp-passthrough.apps.okd-sno.brainybots.cloud
+DNS.1 = *.testapp-passthrough.apps.okd-sno.brainybots.cloud
 EOF
 
 echo "🔐 [3/3] Signing Backend Pod Certificate with Root CA..."

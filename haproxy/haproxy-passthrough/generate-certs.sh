@@ -21,7 +21,7 @@ echo "🔐 [2/3] Generating Backend Pod Private Key and CSR..."
 openssl req -new -nodes -newkey rsa:2048 \
   -keyout passthrough.key \
   -out passthrough.csr \
-  -subj "/C=AU/O=BrainyBots Enterprise/CN=passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud"
+  -subj "/C=AU/O=BrainyBots Enterprise/CN=passthrough-backend"
 
 cat << 'EOF' > san.cnf
 authorityKeyIdentifier=keyid,issuer

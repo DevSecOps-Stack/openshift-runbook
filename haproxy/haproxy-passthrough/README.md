@@ -36,7 +36,7 @@ Since the pod terminates TLS directly, the certificate must be signed for the po
 openssl req -new -nodes -newkey rsa:2048 \
   -keyout passthrough.key \
   -out passthrough.csr \
-  -subj "/C=AU/O=BrainyBots Enterprise/CN=passthrough-app.testapp-passthrough.apps.okd-sno.brainybots.cloud"
+  -subj "/C=AU/O=BrainyBots Enterprise/CN=passthrough-backend"
 ```
 
 ### 1.2 Sign the Pod Cert with your Root CA

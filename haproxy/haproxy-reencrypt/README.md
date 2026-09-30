@@ -18,6 +18,7 @@ In this enterprise pattern, we deploy a **dedicated `IngressController` CR** sco
 | File | Purpose |
 | :--- | :--- |
 | [`00-namespace.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-reencrypt/00-namespace.yaml) | Application namespace labeled `ingress: testapp-reencrypt` |
+| [`01-tls-secret.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-reencrypt/01-tls-secret.yaml) | Ingress TLS secret manifest for Leg 1 public termination |
 | [`01-ingresscontroller.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-reencrypt/01-ingresscontroller.yaml) | **Dedicated IngressController CR** with `namespaceSelector: matchLabels: ingress: testapp-reencrypt` |
 | [`02-service.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-reencrypt/02-service.yaml) | Service with OpenShift Service CA annotation to auto-issue internal certs |
 | [`03-deployment.yaml`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy/haproxy-reencrypt/03-deployment.yaml) | Backend HTTPS container listening on 8443 and mounting internal certs |
@@ -25,18 +26,33 @@ In this enterprise pattern, we deploy a **dedicated `IngressController` CR** sco
 
 ---
 
-## 🚀 Step 1: Deploy Namespace & IngressController
+## 🛠️ Step 1: Generate Public Ingress Certificate (Leg 1)
 
-### 1.1 Create the Namespace
+In Re-encrypt, the router terminates Leg 1 using the public wildcard certificate. Run the automated script to generate the keys and populate `01-tls-secret.yaml`:
+
 ```bash
-oc apply -f 00-namespace.yaml
+./generate-certs.sh
 ```
 
-### 1.2 Deploy the Dedicated IngressController CR
+---
+
+## 🚀 Step 2: Deploy Namespace, Secret & IngressController
+
+> [!IMPORTANT]
+> **SNO Ingress Architecture (LoadBalancerService):**
+> On Single-Node OpenShift, the IngressController uses `endpointPublishingStrategy: type: LoadBalancerService` with `scope: External` to ensure GCP provisions a dedicated external IP and avoids port collisions with `router-default`.
+
+### 2.1 Create Namespace & Apply Ingress Secret
+```bash
+oc apply -f 00-namespace.yaml
+oc apply -f 01-tls-secret.yaml
+```
+
+### 2.2 Deploy Dedicated IngressController CR
 ```bash
 oc apply -f 01-ingresscontroller.yaml
 ```
-*The Ingress Operator automatically creates a dedicated router deployment (`router-testapp-reencrypt-ingress`) in `openshift-ingress`.*
+*The Ingress Operator creates the dedicated router deployment (`router-testapp-reencrypt-ingress`) in `openshift-ingress` and mounts `reencrypt-wildcard-tls`.*
 
 ---
 

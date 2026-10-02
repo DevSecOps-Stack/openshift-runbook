@@ -1,0 +1,7 @@
+# Ephemeral TLS certificates and keys
+*.key
+*.csr
+*.srl
+certs/
+fullchain.crt
+server.crt

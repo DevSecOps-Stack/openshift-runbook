@@ -7,11 +7,11 @@ echo "==========================================================================
 
 echo ""
 echo "1️⃣  Deleting Custom IngressControllers..."
-oc delete ingresscontroller testapp-passthrough-ingress edge-app-ingress ib-pnv1-ingress -n openshift-ingress-operator --ignore-not-found
+oc delete ingresscontroller testapp-reencrypt-ingress testapp-passthrough-ingress edge-app-ingress ib-pnv1-ingress -n openshift-ingress-operator --ignore-not-found
 
 echo ""
 echo "2️⃣  Deleting Demo Namespaces (Pods, Deployments, Services, Routes)..."
-oc delete ns demo-testapp-passthrough edge-app pnv1-team tls-demo --ignore-not-found
+oc delete ns demo-testapp-reencrypt demo-testapp-passthrough edge-app pnv1-team tls-demo --ignore-not-found
 
 echo ""
 echo "3️⃣  Deleting Custom TLS Secrets in openshift-ingress..."

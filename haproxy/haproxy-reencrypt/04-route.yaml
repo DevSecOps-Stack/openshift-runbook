@@ -15,6 +15,7 @@ spec:
     targetPort: https
   tls:
     termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
     # In OpenShift, when certificates are issued by the cluster's internal Service CA,
     # the router automatically trusts them by default.
     # To specify an explicit internal enterprise CA, populate destinationCACertificate:

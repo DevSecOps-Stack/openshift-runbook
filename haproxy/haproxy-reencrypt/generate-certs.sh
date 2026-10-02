@@ -6,8 +6,17 @@ CERTS_DIR="$DIR/certs"
 mkdir -p "$CERTS_DIR"
 cd "$CERTS_DIR"
 
-echo "🔐 [1/3] Generating BrainyBots Enterprise Root CA (if not already present)..."
-if [ ! -f "root-ca.key" ] || [ ! -f "root-ca.crt" ]; then
+echo "🔐 [1/3] Detecting Enterprise Root CA..."
+if [ -f "$DIR/../haproxy-edge/root-ca.crt" ] && [ -f "$DIR/../haproxy-edge/root-ca.key" ]; then
+  echo "   ...found existing trusted Root CA in haproxy-edge! Reusing it."
+  cp "$DIR/../haproxy-edge/root-ca.crt" root-ca.crt
+  cp "$DIR/../haproxy-edge/root-ca.key" root-ca.key
+elif [ -f "$DIR/../haproxy-edge/certs/root-ca.crt" ] && [ -f "$DIR/../haproxy-edge/certs/root-ca.key" ]; then
+  echo "   ...found existing trusted Root CA in haproxy-edge/certs! Reusing it."
+  cp "$DIR/../haproxy-edge/certs/root-ca.crt" root-ca.crt
+  cp "$DIR/../haproxy-edge/certs/root-ca.key" root-ca.key
+elif [ ! -f "root-ca.key" ] || [ ! -f "root-ca.crt" ]; then
+  echo "   ...generating fresh Root CA..."
   openssl req -x509 -new -nodes -newkey rsa:4096 \
     -keyout root-ca.key \
     -out root-ca.crt \

@@ -22,9 +22,11 @@ A production-grade, battle-tested runbook repository housing deep architectural 
 ---
 
 ### ⚙️ 2. Core Architecture & High-Yield Interview Cheat-Sheets
-* **[Operator, CRD & CR Architecture Guide](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/operator-crd-cr.md)**: Reconcile loops, OpenAPI schemas, CR validation, status subresources, and failure modes.
-* **[vLLM & KEDA AI Autoscaling Runbook](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/vllm-keda-autoscaling.md)**: GPU token metrics, `vllm:num_requests_waiting`, scaled objects, and HPA interaction.
-* **[HAProxy Ingress Quick Cheat-Sheet](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/haproxy-ingress.md)**: High-yield 15-minute pre-interview review soundbites.
+* **[Dell PowerMax CSI vs. NetApp Trident Enterprise Storage Guide](storage-pmax-trident.md)**: Wire-level SAN/NAS flows, DM-multipath (`multipathd`), Masking Views, RWX NFS locking, and recovery runbooks.
+* **[Operator, CRD & CR Architecture Guide](operator-crd-cr.md)**: Reconcile loops, OpenAPI schemas, CR validation, status subresources, and failure modes.
+* **[vLLM & KEDA AI Autoscaling Runbook](vllm-keda-autoscaling.md)**: GPU token metrics, `vllm:num_requests_waiting`, scaled objects, and HPA interaction.
+* **[HAProxy Ingress Quick Cheat-Sheet](haproxy-ingress.md)**: High-yield 15-minute pre-interview review soundbites.
+
 
 ---
 

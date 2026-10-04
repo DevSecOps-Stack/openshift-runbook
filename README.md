@@ -23,12 +23,17 @@ A production-grade, battle-tested runbook repository housing deep architectural 
 
 ### ⚙️ 2. Core Architecture & High-Yield Interview Cheat-Sheets (`interview/`)
 * **[Master Interview Directory & Curriculum](interview/README.md)**: 15-minute pre-interview review dashboard.
+* **[ROSA HCP & GitOps Architecture Hub](interview/rosa/README.md)**: Dedicated hub for ROSA Hosted Control Planes, AWS PrivateLink, Zero-Trust AWS STS / OIDC (IRSA), and multi-cluster GitOps with Argo CD & AVP.
+  * [ROSA HCP Architecture & PrivateLink](interview/rosa/rosa-hcp-architecture.md)
+  * [Zero-Trust AWS STS & OIDC Security](interview/rosa/aws-sts-oidc-security.md)
+  * [GitOps Fleet Management with Argo CD & AVP](interview/rosa/rosa-gitops-argocd.md)
 * **[Resource Governance, LimitRanges & QoS Guide](interview/resource-governance-limitranges-qos.md)**: CPU CFS throttling, Memory OOMKilled (`Exit Code 137`), QoS classes, and visual side-by-side LimitRange vs. Deployment YAML architectures.
 * **[Dell PowerMax CSI vs. NetApp Trident Enterprise Storage Guide](interview/storage-pmax-trident.md)**: Wire-level SAN/NAS flows, DM-multipath (`multipathd`), Masking Views, RWX NFS locking, and recovery runbooks.
 * **[Operator, CRD & CR Architecture Guide](interview/operator-crd-cr.md)**: Reconcile loops, OpenAPI schemas, CR validation, status subresources, and failure modes.
 * **[vLLM & KEDA AI Autoscaling Runbook](interview/vllm-keda-autoscaling.md)**: GPU token metrics, `vllm:num_requests_waiting`, scaled objects, and HPA interaction.
 * **[HAProxy Ingress Quick Cheat-Sheet](interview/haproxy-ingress.md)**: High-yield 15-minute pre-interview review soundbites.
 * **[Ingress TLS Certificates & Service CA](interview/ingress-tls-certificates.md)**: OpenSSL x509, modern SAN extensions, and Service CA automated in-pod PKI.
+
 
 
 

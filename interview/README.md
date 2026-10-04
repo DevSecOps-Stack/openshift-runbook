@@ -2,6 +2,8 @@
 
 A curated, high-yield collection of architectural cheat-sheets, wire-level packet traces, failure recovery runbooks, and senior interview defense manuals.
 
+> ⏱️ **Active Preparation Timetable & Progress Tracker:** [`TIMETABLE.md`](../TIMETABLE.md) — *Track daily progress and resume seamlessly across all 7 core topics.*
+
 ---
 
 ## 🗺️ Master Curriculum & Learning Path

@@ -9,8 +9,8 @@ A comprehensive platform engineering study guide, wire-level architectural manua
 | Guide | Core Architecture & Topics Covered | Direct Link |
 | :--- | :--- | :--- |
 | **1. ROSA HCP Architecture & Networking** | Classic ROSA vs. ROSA HCP (HyperShift), Customer VPC vs. Red Hat Management VPC, AWS PrivateLink plumbing, The Konnectivity Reverse Proxy Tunnel, provisioning velocity (45m $\rightarrow$ 12m), and AWS EC2 cost elimination. | [`rosa-hcp-architecture.md`](rosa-hcp-architecture.md) |
-| **2. Zero-Trust Security: AWS STS & OIDC** | Keyless IAM authentication, Why static AWS Secret Keys are forbidden in banking, OIDC Web Identity Federation, IAM Roles for Service Accounts (IRSA), JWT token lifecycle, and the infamous `failed to refresh cached credentials, no EC2 IMDS role found` production war room fix. | [`aws-sts-oidc-security.md`](aws-sts-oidc-security.md) |
-| **3. Enterprise GitOps Fleet with Argo CD & AVP** | Managing a 6-cluster ROSA HCP fleet, The Application-of-Apps pattern, Argo CD Vault Plugin (AVP) integration with AWS Secrets Manager, declarative multi-environment promotions (Dev $\rightarrow$ Non-Prod $\rightarrow$ Prod), and disaster recovery. | [`rosa-gitops-argocd.md`](rosa-gitops-argocd.md) |
+| **2. Zero-Trust Security: AWS STS & OIDC Secrets** | Keyless IAM authentication, Why static AWS Secret Keys are forbidden in banking, OIDC Web Identity Federation, IAM Roles for Service Accounts (IRSA), JWT token lifecycle, AWS Secrets Manager in-memory fetch via AVP, and the infamous `no EC2 IMDS role found` production war room fix. | [`rosa-sts-gitops-secrets.md`](rosa-sts-gitops-secrets.md) |
+| **3. Enterprise GitOps Fleet & App-of-Apps** | Managing a 6-cluster ROSA HCP fleet, The Application-of-Apps pattern, Argo CD Sync Waves (`argocd.argoproj.io/sync-wave`), declarative multi-environment promotions (Dev $\rightarrow$ Non-Prod $\rightarrow$ Prod), and 15-minute disaster recovery. | [`rosa-gitops-argocd.md`](rosa-gitops-argocd.md) |
 
 ---
 

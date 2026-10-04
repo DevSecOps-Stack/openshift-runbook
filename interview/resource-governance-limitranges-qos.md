@@ -86,9 +86,46 @@ When a worker node experiences node-level memory pressure, Kubelet sorts pods by
 | **Prevents Infinite Pods?**| **NO ❌** (1,000 small compliant pods allowed) | **YES ✅** (Caps total vCPUs, RAM, and Pod count) |
 | **Mutual Dependency** | Supplies the required requests/limits so pods pass the Quota gate | Mandates that requests/limits exist before admission |
 
+
 ---
 
-## 📋 5. Visual Side-by-Side YAML Architecture & Surgical Autocomplete
+### 🧮 The Replica Multiplier Rule: Per-Pod vs. Per-Deployment Reservation
+
+A critical conceptual trap for developers and engineers:
+
+> **The `resources.requests` block in a Deployment is NOT shared across the deployment! It applies to EACH INDIVIDUAL REPLICA POD!**
+
+$$\textbf{Namespace Quota Impact} = \textbf{Deployment Replicas} \times \sum \textbf{Container Requests}$$
+
+#### The Classic Production Scenario:
+* **Namespace ResourceQuota:** `requests.cpu: "10"` (Total budget: 10 vCPUs)
+* **Developer Deployment:**
+  ```yaml
+  spec:
+    replicas: 10          # 10 Replicas
+    template:
+      spec:
+        containers:
+        - name: payment-api
+          resources:
+            requests:
+              cpu: "1"    # ◄── NOT 1 CPU shared by all 10! EACH pod gets 1 CPU!
+  ```
+
+#### What Happens Under the Hood:
+1. **The Math:** $10 \text{ replicas} \times 1 \text{ vCPU request} = \mathbf{10 \text{ vCPUs}}$ total quota claimed.
+2. **Quota Admission Gate (APPROVED ✅):**
+   * $\text{Current Used } (0) + \text{Requested } (10) \le 10\text{ (Hard Quota)}$.
+   * The `ResourceQuota` marks the namespace as **10/10 (100% EXHAUSTED)**!
+3. **Physical Scheduling Reality Check:**
+   * The `kube-scheduler` must find physical worker nodes with 1 free vCPU for each of the 10 pods.
+   * If physical hardware is available, all 10 pods run. If cluster nodes lack CPU, extra pods wait in `Pending`.
+4. **The "Locked Door" Effect:**
+   * Because the namespace quota is now **10/10 (100% full)**, **NO OTHER POD can start in this namespace!**
+   * Scaling to 11 replicas or launching even a tiny `50m` helper pod is instantly blocked at admission by the `ResourceQuota`!
+
+---
+
 
 ### Master Side-by-Side Mapping Table
 

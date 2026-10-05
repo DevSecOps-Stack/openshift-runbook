@@ -55,31 +55,63 @@ When a node hits 96% RAM (`MemoryPressure`), Kubelet evicts pods like throwing p
 
 ---
 
-## 🧮 4. The 10-Replica Multiplier Scenario (The 4 Layers)
+## 🧮 4. The 10-Replica Scenario (Policy YAML vs. Dev YAML)
 
+### A. The Platform Policy (Guardrails & Budget)
 ```yaml
+# 1. CONTAINER GUARDRAILS
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-guardrails
+  namespace: payment-apps
 spec:
-  replicas: 10
+  limits:
+  - type: Container
+    min:
+      cpu: "50m"                  # Min 50 millicores per container
+    max:
+      cpu: "4"                    # Max 4 CPUs per container
+    maxLimitRequestRatio:
+      cpu: "2"                    # Limit cannot exceed 2x the Request!
+
+---
+# 2. NAMESPACE AGGREGATE BUDGET
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-budget
+  namespace: payment-apps
+spec:
+  hard:
+    requests.cpu: "20"            # Max 20 vCPUs total requested
+    limits.cpu: "50"              # Max 50 vCPUs total limited
+```
+
+### B. What the Developer Submits
+```yaml
+# 3. DEVELOPER DEPLOYMENT
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: payment-apps
+spec:
+  replicas: 10                    # ◄── Multiplies everything by 10!
   template:
     spec:
       containers:
       - name: payment-api
         resources:
           requests:
-            cpu: "1"     # ◄── Scheduler floor (per pod)
+            cpu: "1"              # ◄── Total: 10 x 1 = 10 vCPUs requested
           limits:
-            cpu: "10"    # ◄── Runtime ceiling (per pod)
+            cpu: "10"             # ◄── Total: 10 x 10 = 100 vCPUs limited!
 ```
 
 * **The Math:**
   * **Total Requests:** $10 \text{ replicas} \times 1\text{ CPU} = \mathbf{10\text{ vCPUs}}$ (claims 10 CPUs on cluster nodes).
   * **Total Limits:** $10 \text{ replicas} \times 10\text{ CPU} = \mathbf{100\text{ vCPUs}}$ (demands 100 CPUs against namespace limit quota).
-
-* **The 4 Layers Under the Hood:**
-  1. **Quota Admission Gate:** If namespace quota caps `limits.cpu: 50`, deployment is **REJECTED at admission** ($100 > 50$), even though requests ($10\text{ CPUs}$) fit within a 20-CPU request quota!
-  2. **QoS Class Assignment:** Because `requests < limits`, pod gets **`Burstable`** QoS (`oom_score_adj: 2 to 999`).
-  3. **Linux Kernel CFS Behavior:** Container can burst up to 10 CPU cores if idle. If threads attempt $>10$ cores within a 100ms CFS period, kernel **throttles execution** (`cpu.cfs_quota_us`). Pod stays `Running`, but latency spikes.
-  4. **The 10x Noisy Neighbor Trap:** Scheduler only inspects the 1 CPU request and packs 12 pods onto a single 16-core node. If all pods burst simultaneously, they starve each other. **Fix:** Apply `maxLimitRequestRatio: 2` in `LimitRange`.
 
 ---
 
@@ -90,19 +122,25 @@ DEVELOPER APPLIES DEPLOYMENT: (replicas: 10, req: 1 CPU, lim: 10 CPU)
   │
   ▼
 GATE 1: LimitRange (Evaluates SINGLE container: req: 1, lim: 10)
-  • Is 1 CPU >= min (50m)?                     ──► ✅ Pass
-  • Is 10 CPU <= max (4 CPU)?                  ──► ❌ REJECTED if max is 4!
-  • Is Ratio (10/1 = 10x) <= maxLimitRequestRatio (2x)? ──► ❌ REJECTED if ratio > 2x!
+  • Is 1 CPU >= min (50m)?                             ──► ✅ Pass (1000m >= 50m)
+  • Is 10 CPU <= max (4 CPU)?                          ──► ❌ REJECTED! (10 > 4)
+  • Is Ratio (10/1 = 10x) <= maxLimitRequestRatio (2x)? ──► ❌ REJECTED! (10x > 2x)
   │
   ▼ (If Gate 1 passes...)
 GATE 2: ResourceQuota (Evaluates MULTIPLIED SUM: 10 replicas)
-  • Total Requests (10 x 1 = 10) <= hard requests.cpu (20)?  ──► ✅ Pass
-  • Total Limits (10 x 10 = 100) <= hard limits.cpu (50)?    ──► ❌ REJECTED (100 > 50)!
+  • Total Requests (10 x 1 = 10) <= hard requests.cpu (20)?  ──► ✅ Pass (10 <= 20)
+  • Total Limits (10 x 10 = 100) <= hard limits.cpu (50)?    ──► ❌ REJECTED! (100 > 50)
   │
   ▼ (If Gate 2 passes...)
 GATE 3: Kube-Scheduler (Physical Node Placement)
   • Finds worker nodes with at least 1 vCPU unallocated per pod.
 ```
+
+### The 4 Layers Under the Hood:
+1. **Quota Admission Gate:** Rejected because total limits ($100\text{ CPUs}$) exceeds `hard.limits.cpu: 50`.
+2. **QoS Class Assignment:** Assigned **`Burstable`** (`requests < limits`, `oom_score_adj = 2 to 999`).
+3. **Linux Kernel CFS Behavior:** If admitted, container bursts up to 10 CPU cores if idle. If threads attempt $>10$ cores within 100ms, the kernel **throttles execution** (`cpu.cfs_quota_us`). Pod stays `Running`, but latency spikes.
+4. **The 10x Noisy Neighbor Trap:** The scheduler only checks the 1 CPU request and packs 12 pods onto a single 16-core node. If all burst to 10 cores, they starve each other. Fixed by `maxLimitRequestRatio: 2` in `LimitRange`.
 
 ---
 

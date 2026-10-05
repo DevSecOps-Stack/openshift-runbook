@@ -20,11 +20,14 @@ A curated, high-yield collection of architectural cheat-sheets, wire-level packe
 
 ---
 
-## ⚡ The 15-Minute Pre-Interview Routine
+## ⚡ Strict Style Mandate: Ultra-Brief Bullet Notes (ZERO Dumps)
 
-Each guide in this directory follows a strict, repeatable senior architecture format:
-1. **The 30-Second Elevator Pitch:** Memorize the exact opening soundbite to establish immediate authority.
-2. **Core Components & Roles:** Crystal-clear separation of responsibilities (Control Plane vs. Data Plane).
-3. **Wire-Level Mechanics & Flows:** Explaining what happens at the packet, socket, kernel, and hardware layer.
-4. **Production War Stories:** Step-by-step diagnostic and remediation sequences for real P1 incidents.
-5. **Rapid Q&A:** High-probability interview questions with direct, definitive answers.
+Every guide in this directory follows a strict, repeatable 2-minute review format:
+1. **⚡ 1-Sentence Elevator Soundbite:** Opening authoritative summary.
+2. **🚢 Intuitive Mental Model / Analogy:** Real-world physical analogy (e.g. Lifeboat eviction, ATM swipe vs Credit limit).
+3. **🧮 Practical Scenarios & Exact Numbers:** Concrete math, quota values, limits, and burst ratios (no abstract vagueness).
+4. **🚪 Admission Gates & Wire-Level Flow:** ASCII step-by-step checks showing exactly what passes and what fails.
+5. **🛠️ Top 3 Triage Commands:** Direct shell commands for live cluster inspection.
+6. **⚡ 30-Second Interview Flashcards:** High-probability interview questions with direct 1-sentence answers.
+
+> 🚫 **NO essay paragraphs or dense text dumps.** Every section must be scannable in under 2 minutes before an interview.

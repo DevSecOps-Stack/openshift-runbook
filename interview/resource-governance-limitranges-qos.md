@@ -145,22 +145,48 @@ spec:
 ### The Step-by-Step Gate Evaluation:
 
 ```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│               THE 2-GATE ADMISSION PROTOCOL (INDIVIDUAL vs. CROWD)                      │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
 DEVELOPER APPLIES DEPLOYMENT: (replicas: 10, req: 1 CPU, lim: 10 CPU)
   │
   ▼
-GATE 1: LimitRange (Evaluates SINGLE container: req: 1, lim: 10)
-  • Is 1 CPU >= min (50m) [RULE 1]?                    ──► ✅ Pass (1000m >= 50m)
-  • Is 10 CPU <= max (4 CPU) [RULE 3]?                 ──► ❌ REJECTED! (10 > 4 max)
-  • Is Ratio (10/1 = 10x) <= maxLimitRequestRatio [RULE 5]? ──► ❌ REJECTED! (10x > 2x gap)
-  │
-  ▼ (If Gate 1 were to pass...)
-GATE 2: ResourceQuota (Evaluates MULTIPLIED SUM: 10 replicas)
-  • Total Requests: 10 pods x 1 CPU = 10 vCPUs <= hard: 20? ──► ✅ Pass (10 <= 20)
-  • Total Limits: 10 pods x 10 CPU = 100 vCPUs <= hard: 50? ──► ❌ REJECTED! (100 > 50)
-  │
-  ▼ (If Gate 2 passes...)
-GATE 3: Kube-Scheduler (Physical Node Placement)
-  • Finds worker nodes with at least 1 vCPU unallocated per pod.
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ GATE 1: LimitRange ──► THE INDIVIDUAL CHECK (Evaluates 1 Single Container)              │
+│ Question: "Is this ONE container within the allowed size & burst bounds?"              │
+│ (LimitRange ONLY checks 1 container; it does NOT know or care about replica count!)    │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ • Floor Check:  Is req (1 CPU) >= min (50m) [RULE 1]?                    ──► ✅ Pass   │
+│ • Ceiling Check: Is lim (10 CPU) <= max (4 CPU) [RULE 3]?                ──► ❌ REJECT!│
+│ • Burst Check:   Is Ratio (10/1 = 10x) <= maxLimitRequestRatio [RULE 5]? ──► ❌ REJECT!│
+└────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                         │ (If Gate 1 passes...)
+                                         ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ GATE 2: ResourceQuota ──► THE CROWD CHECK (Evaluates Multiplied Aggregate Sum)          │
+│ Question: "Does the MULTIPLIED TOTAL of all replicas fit in the namespace budget?"      │
+│ (ResourceQuota ONLY checks the sum: 10 replicas x container resources!)                │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ • Total Requests: 10 pods x 1 CPU  = 10 vCPUs <= hard.requests.cpu (20)? ──► ✅ Pass   │
+│ • Total Limits:   10 pods x 10 CPU = 100 vCPUs <= hard.limits.cpu (50)?  ──► ❌ REJECT!│
+└────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                         │ (If Gate 1 & 2 pass...)
+                                         ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ GATE 3: Kube-Scheduler (Physical Node Placement)                                       │
+│ Question: "Do physical worker nodes have at least 1 vCPU unallocated per pod?"         │
+│ (Finds eligible nodes with free allocatable CPU; pods transition to Running)           │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ 💡 THE COMPLIANT FIX (How to Pass All 3 Gates):                                        │
+│ Developer changes container to: req: "2", lim: "4" (replicas: 10)                      │
+│                                                                                        │
+│ • Gate 1: 2 >= 50m (✅), 4 <= 4 max (✅), Ratio 4/2 = 2x <= 2x max ratio (✅)         │
+│ • Gate 2: 10 x 2 = 20 req <= 20 (✅), 10 x 4 = 40 lim <= 50 (✅, with 10 buffer!)     │
+│ • Gate 3: Kube-Scheduler places 10 pods on physical worker nodes ──► 🚀 RUNNING!       │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### The 4 Layers Under the Hood:

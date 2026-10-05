@@ -18,18 +18,55 @@ Practical runbook for platform engineers and application teams working with Kube
 - [Interview questions](#interview-questions)
 - [Further reading](#further-reading)
 
-## Quick summary
+## Quick summary: The 3 Core Mental Models
 
-Kubernetes uses **requests** primarily for scheduling and resource accounting. A request is not a dedicated physical reservation: it is the amount the scheduler accounts for when deciding whether a Pod fits on a node. On a busy node, CPU requests also influence relative CPU shares, while memory requests help determine eviction risk.
+### 🚢 1. The Lifeboat Analogy (QoS Eviction & Kernel `oom_score_adj`)
 
-**Limits** set runtime ceilings. On Linux, the container runtime configures cgroups and the kernel enforces them. CPU overuse is throttled; memory overuse can trigger an out-of-memory (OOM) kill. Memory enforcement is reactive, so an over-limit process is not necessarily killed at the instant it crosses the limit.
+When a worker node experiences severe memory pressure, Kubelet must evict pods to keep the node alive. Think of the node as a sinking lifeboat:
 
-At namespace scope, use the policies together:
+| QoS Class | Pod Spec | Eviction Order | Kernel Score (`/proc/<pid>/oom_score_adj`) | Practical Rule |
+| :--- | :--- | :--- | :--- | :--- |
+| **💀 BestEffort** | Zero requests, zero limits | **1st to be evicted** | `oom_score_adj = 1000` *(Max kill priority)* | Dev/testing batch jobs only |
+| **⚠️ Burstable** | `requests < limits` | **2nd to be evicted** | `oom_score_adj = 2 to 999` *(Dynamic score)* | Standard web APIs & microservices |
+| **🛡️ Guaranteed** | `requests == limits` (both CPU & RAM) | **Evicted last** | `oom_score_adj = -997` *(High resistance)* | Kafka, Oracle DB, transactional APIs |
 
-- `LimitRange` sets per-container, per-Pod, or per-volume bounds and can inject resource defaults.
-- `ResourceQuota` caps aggregate namespace consumption or object counts.
+> **Kernel Mechanism:** Kubelet writes to `/proc/<pid>/oom_score_adj`. Higher scores mean the Linux OOM Killer targets the process first. Setting `requests == limits` minimizes eviction risk during memory pressure.
 
-Neither policy guarantees that a Pod will schedule: the cluster still needs a suitable node with enough allocatable resources.
+---
+
+### 🧮 2. The 10-Replica Multiplier Across 4 Layers
+
+```yaml
+spec:
+  replicas: 10
+  template:
+    spec:
+      containers:
+      - name: api
+        resources:
+          requests:
+            cpu: "1"     # ◄── Scheduler floor (per pod)
+          limits:
+            cpu: "10"    # ◄── Runtime ceiling (per pod)
+```
+
+* **The Math:**
+  * **Total Requests:** $10 \text{ pods} \times 1\text{ CPU} = \mathbf{10\text{ vCPUs}}$ (evaluated by `kube-scheduler` & request quota).
+  * **Total Limits:** $10 \text{ pods} \times 10\text{ CPU} = \mathbf{100\text{ vCPUs}}$ (evaluated by kernel cgroups & limit quota).
+
+* **The 4 Layers Under the Hood:**
+  1. **Quota Admission Shock:** If namespace `ResourceQuota` limits CPU to `50`, the Deployment is **rejected at admission** ($100 > 50$), even though requests ($10\text{ CPUs}$) fit!
+  2. **QoS Class Assignment:** `requests < limits` assigns **`Burstable`** QoS.
+  3. **Linux Kernel CFS Runtime Behavior:** Each container can burst up to 10 CPU cores if idle. Exceeding 10 cores within a 100ms CFS period throttles CPU execution. The pod stays `Running`, but API latency spikes.
+  4. **The 10x Noisy Neighbor Trap:** The scheduler only checks the 1 CPU request and may pack 12 pods onto a 16-core node. If all pods burst simultaneously, they starve each other. **Fix:** Use `LimitRange` with `maxLimitRequestRatio: { cpu: "2" }` to cap burst gaps.
+
+---
+
+### 💳 3. `LimitRange` vs `ResourceQuota` in 3 Lines
+
+* **`LimitRange` (Per-Object Guardrail):** Enforces min/max boundaries per container and **auto-injects default requests/limits** when omitted.
+* **`ResourceQuota` (Namespace Budget):** Caps the **aggregate sum** of all vCPU, RAM, and Storage across the entire namespace. Rejects non-compliant pods; never auto-injects defaults.
+* **The Partnership:** `LimitRange` provides defaults so pods satisfy `ResourceQuota` admission requirements.
 
 ## Requests and limits
 

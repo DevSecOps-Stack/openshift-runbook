@@ -20,14 +20,19 @@ A curated, high-yield collection of architectural cheat-sheets, wire-level packe
 
 ---
 
-## ⚡ Strict Style Mandate: Ultra-Brief Bullet Notes (ZERO Dumps)
+## ⚡ Strict Style Mandate: Ultra-Brief Bullet Notes (The Gold Standard)
 
-Every guide in this directory follows a strict, repeatable 2-minute review format:
-1. **⚡ 1-Sentence Elevator Soundbite:** Opening authoritative summary.
-2. **🚢 Intuitive Mental Model / Analogy:** Real-world physical analogy (e.g. Lifeboat eviction, ATM swipe vs Credit limit).
-3. **🧮 Practical Scenarios & Exact Numbers:** Concrete math, quota values, limits, and burst ratios (no abstract vagueness).
-4. **🚪 Admission Gates & Wire-Level Flow:** ASCII step-by-step checks showing exactly what passes and what fails.
-5. **🛠️ Top 3 Triage Commands:** Direct shell commands for live cluster inspection.
+Every guide in this directory must be scannable in **under 2 minutes** before an interview. **ZERO text dumps or essay paragraphs.**
+
+### The Mandatory 6-Part Structure:
+1. **⚡ 1-Sentence Elevator Soundbite & Analogy:** Physical mental model (e.g. Lifeboat eviction, ATM swipe vs Credit limit).
+2. **📑 Complete Master Policy YAML (Single Source of Truth):**
+   * Must include ALL required fields (e.g. `min`, `max`, `defaultRequest`, `default`, `maxLimitRequestRatio`, `hard` quotas).
+   * Tag every rule inline (e.g. `[RULE 1]`, `[RULE 2]`) so all scenarios trace directly back to code.
+3. **📊 Developer Scenario Matrix (Table):**
+   * 3–4 real-world developer inputs (e.g. omitted everything, partial requests, below min, burst multiplier).
+   * Show what happens mapped directly to the tagged rules and final admitted pod values.
+4. **🚪 Admission Gates & Flow:**
+   * Clean ASCII step-by-step checks (Gate 1 Single Object $\rightarrow$ Gate 2 Multiplied Sum $\rightarrow$ Gate 3 Node Placement) with pass/fail markers.
+5. **🛠️ Top 3 Triage Commands:** Direct shell commands (`oc get rs`, `FailedCreate`, etc.).
 6. **⚡ 30-Second Interview Flashcards:** High-probability interview questions with direct 1-sentence answers.
-
-> 🚫 **NO essay paragraphs or dense text dumps.** Every section must be scannable in under 2 minutes before an interview.

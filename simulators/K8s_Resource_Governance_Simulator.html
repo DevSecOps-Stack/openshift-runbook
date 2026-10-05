@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kubernetes Resource Governance & Admission Simulator</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    input:focus { outline: none; ring: 2px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans antialiased">
+
+  <!-- Header -->
+  <header class="max-w-7xl mx-auto mb-6 flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-800 pb-5">
+    <div>
+      <div class="flex items-center gap-3">
+        <span class="text-3xl">🎛️</span>
+        <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 via-indigo-300 to-emerald-400 bg-clip-text text-transparent">
+          Kubernetes Resource Governance Simulator
+        </h1>
+      </div>
+      <p class="text-slate-400 text-sm mt-1">
+        Interactive 2-Gate Admission Engine: <span class="text-blue-400 font-semibold">LimitRange (Individual)</span> vs. <span class="text-emerald-400 font-semibold">ResourceQuota (Crowd)</span> with Kernel QoS Evaluation.
+      </p>
+    </div>
+    <div class="mt-4 md:mt-0 flex gap-2">
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-950 text-blue-300 border border-blue-800">
+        <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span> OpenShift 4 / K8s Live Evaluator
+      </span>
+    </div>
+  </header>
+
+  <!-- Quick Presets -->
+  <section class="max-w-7xl mx-auto mb-6">
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-lg">
+      <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">⚡ 1-Click Interactive Presets:</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <button onclick="applyPreset('rogue')" class="text-left px-3 py-2 rounded-lg bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/60 transition group">
+          <div class="text-xs font-bold text-rose-300 group-hover:text-rose-200">💥 Scenario 1: The Rogue 10-Replica Burst</div>
+          <div class="text-[11px] text-slate-400">10 replicas, 1 req / 10 lim (Fails Gate 1 & 2)</div>
+        </button>
+        <button onclick="applyPreset('compliant')" class="text-left px-3 py-2 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/60 transition group">
+          <div class="text-xs font-bold text-emerald-300 group-hover:text-emerald-200">✅ Scenario 2: The Compliant App</div>
+          <div class="text-[11px] text-slate-400">10 replicas, 2 req / 4 lim (Passes all gates!)</div>
+        </button>
+        <button onclick="applyPreset('omitted')" class="text-left px-3 py-2 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/60 transition group">
+          <div class="text-xs font-bold text-amber-300 group-hover:text-amber-200">🪄 Scenario 3: Dev Omitted Everything</div>
+          <div class="text-[11px] text-slate-400">resources: {} (Auto-injected by LimitRange)</div>
+        </button>
+        <button onclick="applyPreset('database')" class="text-left px-3 py-2 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-800/60 transition group">
+          <div class="text-xs font-bold text-purple-300 group-hover:text-purple-200">🛡️ Scenario 4: Guaranteed Database</div>
+          <div class="text-[11px] text-slate-400">req == lim: 4 CPU / 4Gi (VIP oom_score: -997)</div>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Grid -->
+  <main class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: Inputs (5 Cols) -->
+    <div class="lg:col-span-5 space-y-6">
+
+      <!-- Card 1: Developer Submission -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <h2 class="font-bold text-base text-sky-400 flex items-center gap-2">
+            <span>📝</span> Developer Deployment Input
+          </h2>
+          <span class="text-xs text-slate-400">What Dev Submits</span>
+        </div>
+
+        <div class="space-y-4">
+          <!-- Replicas -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="font-medium text-slate-300">Replicas (<span id="replicaVal" class="text-sky-400 font-bold">10</span> pods)</span>
+              <span class="text-slate-400 text-[11px]">The Quota Multiplier</span>
+            </div>
+            <input type="range" id="inputReplicas" min="1" max="25" value="10" 
+              class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-400"
+              oninput="document.getElementById('replicaVal').innerText = this.value; recalculate();">
+          </div>
+
+          <!-- Omit toggles -->
+          <div class="flex items-center gap-4 text-xs bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+            <label class="flex items-center gap-2 cursor-pointer text-slate-300">
+              <input type="checkbox" id="checkOmitReq" onchange="toggleOmit('req'); recalculate();" class="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0">
+              <span>Omit Requests (Test Default)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-slate-300">
+              <input type="checkbox" id="checkOmitLim" onchange="toggleOmit('lim'); recalculate();" class="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0">
+              <span>Omit Limits (Test Default)</span>
+            </label>
+          </div>
+
+          <!-- Container Resources (CPU) -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Single Pod Request (CPU)</label>
+              <div class="relative">
+                <input type="number" id="inputReqCpu" step="0.05" value="1" 
+                  class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-sky-500 transition"
+                  oninput="recalculate();">
+                <span class="absolute right-3 top-2.5 text-xs text-slate-500">cores</span>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Single Pod Limit (CPU)</label>
+              <div class="relative">
+                <input type="number" id="inputLimCpu" step="0.5" value="10" 
+                  class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-sky-500 transition"
+                  oninput="recalculate();">
+                <span class="absolute right-3 top-2.5 text-xs text-slate-500">cores</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: LimitRange Policy (Individual Rules) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <h2 class="font-bold text-base text-blue-400 flex items-center gap-2">
+            <span>🛡️</span> Gate 1 Policy: LimitRange
+          </h2>
+          <span class="text-xs text-slate-400">Single Container Guardrails</span>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 mb-1">[RULE 1] min CPU (Floor)</label>
+              <input type="number" id="lrMinCpu" step="0.01" value="0.05" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200" oninput="recalculate();">
+              <span class="text-[10px] text-slate-500">0.05 = 50m</span>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">[RULE 3] max CPU (Ceiling)</label>
+              <input type="number" id="lrMaxCpu" step="1" value="4" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200" oninput="recalculate();">
+              <span class="text-[10px] text-slate-500">4 cores max</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 mb-1">[RULE 2] defaultRequest (Auto-Fill)</label>
+              <input type="number" id="lrDefReqCpu" step="0.05" value="0.1" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200" oninput="recalculate();">
+              <span class="text-[10px] text-slate-500">0.1 = 100m</span>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">[RULE 4] default Limit (Auto-Fill)</label>
+              <input type="number" id="lrDefLimCpu" step="0.1" value="0.5" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200" oninput="recalculate();">
+              <span class="text-[10px] text-slate-500">0.5 = 500m</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-slate-400 mb-1">[RULE 5] maxLimitRequestRatio (Max Burst)</label>
+            <div class="flex items-center gap-2">
+              <input type="number" id="lrRatio" step="0.5" value="2" class="w-24 bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200" oninput="recalculate();">
+              <span class="text-slate-400 text-xs">x (e.g. 2 means limit cannot exceed 2x request)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: ResourceQuota Policy (Crowd Budget) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <h2 class="font-bold text-base text-emerald-400 flex items-center gap-2">
+            <span>📊</span> Gate 2 Policy: ResourceQuota
+          </h2>
+          <span class="text-xs text-slate-400">Namespace Multiplied Budget</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <label class="block text-slate-400 mb-1">hard.requests.cpu</label>
+            <input type="number" id="rqReqCpu" step="5" value="20" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200" oninput="recalculate();">
+            <span class="text-[10px] text-slate-500">Max requested in namespace</span>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">hard.limits.cpu</label>
+            <input type="number" id="rqLimCpu" step="10" value="50" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200" oninput="recalculate();">
+            <span class="text-[10px] text-slate-500">Max limits in namespace</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: Real-Time Gate Evaluation Engine (7 Cols) -->
+    <div class="lg:col-span-7 space-y-6">
+
+      <!-- Overall Status Banner -->
+      <div id="overallVerdictCard" class="rounded-xl p-5 border shadow-xl transition duration-300">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span id="verdictIcon" class="text-3xl">⏳</span>
+            <div>
+              <div id="verdictTitle" class="text-lg font-bold">Evaluating Manifest...</div>
+              <div id="verdictSubtitle" class="text-xs text-slate-400">Running through admission gates</div>
+            </div>
+          </div>
+          <div id="verdictBadge" class="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider">
+            CHECKING
+          </div>
+        </div>
+      </div>
+
+      <!-- GATE 1: LimitRange (The Individual Check) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-blue-400 font-bold text-sm">GATE 1:</span>
+            <span class="font-semibold text-slate-200 text-sm">LimitRange — The Individual Check</span>
+          </div>
+          <span id="gate1Badge" class="text-xs px-2.5 py-0.5 rounded font-bold">...</span>
+        </div>
+
+        <div class="text-xs text-slate-400 mb-3">
+          Evaluates <strong class="text-slate-200">1 single container</strong>. Does not care about replicas!
+        </div>
+
+        <!-- Effective Pod Values (Auto-injection display) -->
+        <div class="bg-slate-950/80 rounded-lg p-3 border border-slate-800 mb-4 font-mono text-xs">
+          <div class="text-[11px] text-slate-500 uppercase font-sans font-semibold mb-1">Effective Container Values Evaluated:</div>
+          <div class="grid grid-cols-2 gap-2 text-slate-300">
+            <div>Requested CPU: <span id="evalReqCpu" class="text-sky-400 font-bold">1</span> <span id="evalReqInjected" class="text-amber-400 text-[10px] ml-1"></span></div>
+            <div>Limit CPU: <span id="evalLimCpu" class="text-sky-400 font-bold">10</span> <span id="evalLimInjected" class="text-amber-400 text-[10px] ml-1"></span></div>
+          </div>
+        </div>
+
+        <!-- The 3 Checks -->
+        <div class="space-y-2.5 text-xs">
+          <div id="checkMinRow" class="flex items-center justify-between p-2.5 rounded-lg border border-slate-800/80 bg-slate-950/50">
+            <span class="flex items-center gap-2">
+              <span id="iconCheckMin">⚪</span>
+              <span><strong>Floor Check [RULE 1]:</strong> req (<span id="valCheckMinReq">1</span>) &ge; min (<span id="valCheckMinFloor">0.05</span>)</span>
+            </span>
+            <span id="badgeCheckMin" class="font-bold">...</span>
+          </div>
+
+          <div id="checkMaxRow" class="flex items-center justify-between p-2.5 rounded-lg border border-slate-800/80 bg-slate-950/50">
+            <span class="flex items-center gap-2">
+              <span id="iconCheckMax">⚪</span>
+              <span><strong>Ceiling Check [RULE 3]:</strong> lim (<span id="valCheckMaxLim">10</span>) &le; max (<span id="valCheckMaxCeil">4</span>)</span>
+            </span>
+            <span id="badgeCheckMax" class="font-bold">...</span>
+          </div>
+
+          <div id="checkRatioRow" class="flex items-center justify-between p-2.5 rounded-lg border border-slate-800/80 bg-slate-950/50">
+            <span class="flex items-center gap-2">
+              <span id="iconCheckRatio">⚪</span>
+              <span><strong>Burst Ratio [RULE 5]:</strong> ratio (<span id="valActualRatio">10x</span>) &le; maxRatio (<span id="valAllowedRatio">2x</span>)</span>
+            </span>
+            <span id="badgeCheckRatio" class="font-bold">...</span>
+          </div>
+        </div>
+
+        <!-- Gate 1 Error message if any -->
+        <div id="gate1ErrorBox" class="mt-3 p-2.5 bg-rose-950/50 border border-rose-800 text-rose-300 rounded text-xs font-mono hidden">
+        </div>
+      </div>
+
+      <!-- GATE 2: ResourceQuota (The Crowd Check) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-emerald-400 font-bold text-sm">GATE 2:</span>
+            <span class="font-semibold text-slate-200 text-sm">ResourceQuota — The Crowd Check</span>
+          </div>
+          <span id="gate2Badge" class="text-xs px-2.5 py-0.5 rounded font-bold">...</span>
+        </div>
+
+        <div class="text-xs text-slate-400 mb-3">
+          Evaluates the <strong class="text-slate-200">Multiplied Total</strong> (<span id="textReplicasCount">10</span> replicas &times; container resources).
+        </div>
+
+        <!-- Multiplied Math & Progress Bars -->
+        <div class="space-y-4 text-xs">
+          <!-- Request Math -->
+          <div>
+            <div class="flex justify-between mb-1">
+              <span class="text-slate-300">Total Requested CPU: <strong id="mathReqTotal" class="text-emerald-400">10 vCPUs</strong> (<span id="mathReqDetail">10 x 1</span>)</span>
+              <span class="text-slate-400">Quota: <strong id="quotaReqMax">20 vCPUs</strong></span>
+            </div>
+            <div class="w-full bg-slate-950 rounded-full h-2.5 border border-slate-800 overflow-hidden">
+              <div id="barReq" class="h-2.5 rounded-full transition-all duration-300 bg-emerald-500" style="width: 50%"></div>
+            </div>
+          </div>
+
+          <!-- Limit Math -->
+          <div>
+            <div class="flex justify-between mb-1">
+              <span class="text-slate-300">Total Limited CPU: <strong id="mathLimTotal" class="text-rose-400 font-bold">100 vCPUs</strong> (<span id="mathLimDetail">10 x 10</span>)</span>
+              <span class="text-slate-400">Quota: <strong id="quotaLimMax">50 vCPUs</strong></span>
+            </div>
+            <div class="w-full bg-slate-950 rounded-full h-2.5 border border-slate-800 overflow-hidden">
+              <div id="barLim" class="h-2.5 rounded-full transition-all duration-300 bg-rose-500" style="width: 100%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gate 2 Error message if any -->
+        <div id="gate2ErrorBox" class="mt-3 p-2.5 bg-rose-950/50 border border-rose-800 text-rose-300 rounded text-xs font-mono hidden">
+        </div>
+      </div>
+
+      <!-- GATE 3: Kernel QoS & Runtime Impact -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-purple-400 font-bold text-sm">GATE 3:</span>
+            <span class="font-semibold text-slate-200 text-sm">Kernel QoS Class & Eviction Risk</span>
+          </div>
+          <span id="qosBadge" class="text-xs px-2.5 py-0.5 rounded font-bold uppercase">...</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+            <div class="text-slate-400 text-[11px] mb-1">QoS Class</div>
+            <div id="qosClassText" class="font-bold text-sm text-amber-400">Burstable</div>
+            <div id="qosClassDesc" class="text-[10px] text-slate-500 mt-1">requests &lt; limits</div>
+          </div>
+          <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+            <div class="text-slate-400 text-[11px] mb-1">Kernel oom_score_adj</div>
+            <div id="oomScoreText" class="font-mono font-bold text-sm text-sky-400">~2 to 999</div>
+            <div id="oomScoreDesc" class="text-[10px] text-slate-500 mt-1">Killed 2nd during RAM pressure</div>
+          </div>
+          <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+            <div class="text-slate-400 text-[11px] mb-1">CFS Throttling Risk</div>
+            <div id="cfsThrottlingText" class="font-bold text-sm text-rose-400">HIGH</div>
+            <div id="cfsThrottlingDesc" class="text-[10px] text-slate-500 mt-1">10x burst gap triggers latency</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Interactive JavaScript Engine -->
+  <script>
+    function toggleOmit(type) {
+      if (type === 'req') {
+        const omit = document.getElementById('checkOmitReq').checked;
+        document.getElementById('inputReqCpu').disabled = omit;
+        document.getElementById('inputReqCpu').classList.toggle('opacity-40', omit);
+      } else {
+        const omit = document.getElementById('checkOmitLim').checked;
+        document.getElementById('inputLimCpu').disabled = omit;
+        document.getElementById('inputLimCpu').classList.toggle('opacity-40', omit);
+      }
+    }
+
+    function applyPreset(name) {
+      const replicasInput = document.getElementById('inputReplicas');
+      const reqInput = document.getElementById('inputReqCpu');
+      const limInput = document.getElementById('inputLimCpu');
+      const omitReq = document.getElementById('checkOmitReq');
+      const omitLim = document.getElementById('checkOmitLim');
+
+      // Reset omits
+      omitReq.checked = false;
+      omitLim.checked = false;
+      reqInput.disabled = false;
+      limInput.disabled = false;
+      reqInput.classList.remove('opacity-40');
+      limInput.classList.remove('opacity-40');
+
+      if (name === 'rogue') {
+        replicasInput.value = 10;
+        reqInput.value = 1;
+        limInput.value = 10;
+      } else if (name === 'compliant') {
+        replicasInput.value = 10;
+        reqInput.value = 2;
+        limInput.value = 4;
+      } else if (name === 'omitted') {
+        replicasInput.value = 3;
+        omitReq.checked = true;
+        omitLim.checked = true;
+        toggleOmit('req');
+        toggleOmit('lim');
+      } else if (name === 'database') {
+        replicasInput.value = 3;
+        reqInput.value = 4;
+        limInput.value = 4;
+      }
+
+      document.getElementById('replicaVal').innerText = replicasInput.value;
+      recalculate();
+    }
+
+    function recalculate() {
+      // 1. Gather Limits and Quota Policies
+      const lrMin = parseFloat(document.getElementById('lrMinCpu').value) || 0.05;
+      const lrMax = parseFloat(document.getElementById('lrMaxCpu').value) || 4.0;
+      const lrDefReq = parseFloat(document.getElementById('lrDefReqCpu').value) || 0.1;
+      const lrDefLim = parseFloat(document.getElementById('lrDefLimCpu').value) || 0.5;
+      const lrRatio = parseFloat(document.getElementById('lrRatio').value) || 2.0;
+
+      const rqReqMax = parseFloat(document.getElementById('rqReqCpu').value) || 20.0;
+      const rqLimMax = parseFloat(document.getElementById('rqLimCpu').value) || 50.0;
+
+      // 2. Gather Developer Inputs
+      const replicas = parseInt(document.getElementById('inputReplicas').value) || 1;
+      const isOmitReq = document.getElementById('checkOmitReq').checked;
+      const isOmitLim = document.getElementById('checkOmitLim').checked;
+
+      let rawReq = isOmitReq ? null : parseFloat(document.getElementById('inputReqCpu').value);
+      let rawLim = isOmitLim ? null : parseFloat(document.getElementById('inputLimCpu').value);
+
+      // Auto-injection phase (Mutating Webhook)
+      let effectiveReq = rawReq !== null && !isNaN(rawReq) ? rawReq : lrDefReq;
+      let effectiveLim = rawLim !== null && !isNaN(rawLim) ? rawLim : lrDefLim;
+
+      document.getElementById('evalReqCpu').innerText = effectiveReq;
+      document.getElementById('evalLimCpu').innerText = effectiveLim;
+      document.getElementById('evalReqInjected').innerText = isOmitReq ? "(auto-injected defaultRequest)" : "";
+      document.getElementById('evalLimInjected').innerText = isOmitLim ? "(auto-injected default)" : "";
+
+      // 3. Evaluate GATE 1: LimitRange (Individual Container)
+      const passMin = effectiveReq >= lrMin;
+      const passMax = effectiveLim <= lrMax;
+      const actualRatio = effectiveReq > 0 ? (effectiveLim / effectiveReq) : 999;
+      const passRatio = actualRatio <= (lrRatio + 0.0001);
+
+      const gate1Passed = passMin && passMax && passRatio;
+
+      // Update Gate 1 UI
+      document.getElementById('valCheckMinReq').innerText = effectiveReq;
+      document.getElementById('valCheckMinFloor').innerText = lrMin;
+      updateCheckRow('checkMinRow', 'iconCheckMin', 'badgeCheckMin', passMin, passMin ? "PASS ✅" : "FAIL (Too small) ❌");
+
+      document.getElementById('valCheckMaxLim').innerText = effectiveLim;
+      document.getElementById('valCheckMaxCeil').innerText = lrMax;
+      updateCheckRow('checkMaxRow', 'iconCheckMax', 'badgeCheckMax', passMax, passMax ? "PASS ✅" : "FAIL (Exceeds max) ❌");
+
+      document.getElementById('valActualRatio').innerText = actualRatio.toFixed(1) + 'x';
+      document.getElementById('valAllowedRatio').innerText = lrRatio + 'x';
+      updateCheckRow('checkRatioRow', 'iconCheckRatio', 'badgeCheckRatio', passRatio, passRatio ? "PASS ✅" : "FAIL (Gap too large) ❌");
+
+      const g1Badge = document.getElementById('gate1Badge');
+      const g1Err = document.getElementById('gate1ErrorBox');
+      if (gate1Passed) {
+        g1Badge.innerText = "PASSED ✅";
+        g1Badge.className = "text-xs px-2.5 py-0.5 rounded font-bold bg-emerald-950 text-emerald-300 border border-emerald-800";
+        g1Err.classList.add('hidden');
+      } else {
+        g1Badge.innerText = "REJECTED ❌";
+        g1Badge.className = "text-xs px-2.5 py-0.5 rounded font-bold bg-rose-950 text-rose-300 border border-rose-800";
+        let errs = [];
+        if (!passMin) errs.push(`min cpu usage is ${lrMin}, but request is ${effectiveReq}`);
+        if (!passMax) errs.push(`maximum cpu usage per Container is ${lrMax}, but limit is ${effectiveLim}`);
+        if (!passRatio) errs.push(`cpu max limit to request ratio is ${lrRatio}, but provided ratio is ${actualRatio.toFixed(1)}`);
+        g1Err.innerText = `Error from server (Forbidden): pods is forbidden: ${errs.join(" AND ")}`;
+        g1Err.classList.remove('hidden');
+      }
+
+      // 4. Evaluate GATE 2: ResourceQuota (Crowd Math)
+      document.getElementById('textReplicasCount').innerText = replicas;
+      const totalReq = replicas * effectiveReq;
+      const totalLim = replicas * effectiveLim;
+
+      document.getElementById('mathReqTotal').innerText = totalReq.toFixed(1) + " vCPUs";
+      document.getElementById('mathReqDetail').innerText = `${replicas} x ${effectiveReq}`;
+      document.getElementById('quotaReqMax').innerText = rqReqMax + " vCPUs";
+
+      document.getElementById('mathLimTotal').innerText = totalLim.toFixed(1) + " vCPUs";
+      document.getElementById('mathLimDetail').innerText = `${replicas} x ${effectiveLim}`;
+      document.getElementById('quotaLimMax').innerText = rqLimMax + " vCPUs";
+
+      const reqPct = Math.min((totalReq / rqReqMax) * 100, 100);
+      const limPct = Math.min((totalLim / rqLimMax) * 100, 100);
+
+      const passQuotaReq = totalReq <= rqReqMax;
+      const passQuotaLim = totalLim <= rqLimMax;
+      const gate2Passed = passQuotaReq && passQuotaLim;
+
+      const barReq = document.getElementById('barReq');
+      barReq.style.width = reqPct + '%';
+      barReq.className = `h-2.5 rounded-full transition-all duration-300 ${passQuotaReq ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`;
+
+      const barLim = document.getElementById('barLim');
+      barLim.style.width = limPct + '%';
+      barLim.className = `h-2.5 rounded-full transition-all duration-300 ${passQuotaLim ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`;
+
+      const g2Badge = document.getElementById('gate2Badge');
+      const g2Err = document.getElementById('gate2ErrorBox');
+      if (gate2Passed) {
+        g2Badge.innerText = "PASSED ✅";
+        g2Badge.className = "text-xs px-2.5 py-0.5 rounded font-bold bg-emerald-950 text-emerald-300 border border-emerald-800";
+        g2Err.classList.add('hidden');
+      } else {
+        g2Badge.innerText = "REJECTED ❌";
+        g2Badge.className = "text-xs px-2.5 py-0.5 rounded font-bold bg-rose-950 text-rose-300 border border-rose-800";
+        let quotaErrs = [];
+        if (!passQuotaReq) quotaErrs.push(`exceeded quota: requests.cpu, requested: ${totalReq}, used: 0, limited: ${rqReqMax}`);
+        if (!passQuotaLim) quotaErrs.push(`exceeded quota: limits.cpu, requested: ${totalLim}, used: 0, limited: ${rqLimMax}`);
+        g2Err.innerText = `Error from server (Forbidden): pods is forbidden: ${quotaErrs.join("; ")}`;
+        g2Err.classList.remove('hidden');
+      }
+
+      // 5. Overall Verdict Banner
+      const verdictCard = document.getElementById('overallVerdictCard');
+      const vIcon = document.getElementById('verdictIcon');
+      const vTitle = document.getElementById('verdictTitle');
+      const vSub = document.getElementById('verdictSubtitle');
+      const vBadge = document.getElementById('verdictBadge');
+
+      if (!gate1Passed) {
+        verdictCard.className = "rounded-xl p-5 border shadow-xl transition duration-300 bg-rose-950/40 border-rose-800";
+        vIcon.innerText = "🚫";
+        vTitle.innerText = "ADMISSION REJECTED AT GATE 1 (LimitRange)";
+        vTitle.className = "text-lg font-bold text-rose-300";
+        vSub.innerText = "Container violates single-object policy boundaries. Pod was never committed to etcd.";
+        vBadge.innerText = "BLOCKED (GATE 1)";
+        vBadge.className = "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-rose-900 text-rose-200 border border-rose-700";
+      } else if (!gate2Passed) {
+        verdictCard.className = "rounded-xl p-5 border shadow-xl transition duration-300 bg-amber-950/40 border-amber-800";
+        vIcon.innerText = "🛑";
+        vTitle.innerText = "ADMISSION REJECTED AT GATE 2 (ResourceQuota)";
+        vTitle.className = "text-lg font-bold text-amber-300";
+        vSub.innerText = "Single container is valid, but multiplied sum exceeds namespace budget ceiling.";
+        vBadge.innerText = "BLOCKED (GATE 2)";
+        vBadge.className = "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-amber-900 text-amber-200 border border-amber-700";
+      } else {
+        verdictCard.className = "rounded-xl p-5 border shadow-xl transition duration-300 bg-emerald-950/40 border-emerald-800";
+        vIcon.innerText = "🚀";
+        vTitle.innerText = "ADMISSION APPROVED! PODS RUNNING";
+        vTitle.className = "text-lg font-bold text-emerald-300";
+        vSub.innerText = `All ${replicas} pods successfully admitted, saved to etcd, and assigned to worker nodes.`;
+        vBadge.innerText = "RUNNING (1/1)";
+        vBadge.className = "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-emerald-900 text-emerald-200 border border-emerald-700";
+      }
+
+      // 6. QoS & Kernel Runtime calculations
+      let qosClass = "Burstable";
+      let oomScore = "~2 to 999";
+      let oomDesc = "Killed 2nd during node memory exhaustion";
+      let qosColor = "text-amber-400";
+      let qosBadgeBg = "bg-amber-950 text-amber-300 border border-amber-800";
+
+      if (Math.abs(effectiveReq - effectiveLim) < 0.001) {
+        qosClass = "Guaranteed 🛡️";
+        oomScore = "-997 (Immune)";
+        oomDesc = "The VIP! Survives until node completely crashes";
+        qosColor = "text-purple-400";
+        qosBadgeBg = "bg-purple-950 text-purple-300 border border-purple-800";
+      } else if (rawReq === null && rawLim === null && !effectiveReq && !effectiveLim) {
+        qosClass = "BestEffort 💀";
+        oomScore = "1000 (Max Death)";
+        oomDesc = "Killed 1st immediately when node runs out of RAM";
+        qosColor = "text-rose-400";
+        qosBadgeBg = "bg-rose-950 text-rose-300 border border-rose-800";
+      }
+
+      document.getElementById('qosClassText').innerText = qosClass;
+      document.getElementById('qosClassText').className = `font-bold text-sm ${qosColor}`;
+      document.getElementById('qosBadge').innerText = qosClass;
+      document.getElementById('qosBadge').className = `text-xs px-2.5 py-0.5 rounded font-bold uppercase ${qosBadgeBg}`;
+      document.getElementById('oomScoreText').innerText = oomScore;
+      document.getElementById('oomScoreDesc').innerText = oomDesc;
+
+      const cfsText = document.getElementById('cfsThrottlingText');
+      const cfsDesc = document.getElementById('cfsThrottlingDesc');
+      if (actualRatio >= 4) {
+        cfsText.innerText = "SEVERE (CFS Throttling)";
+        cfsText.className = "font-bold text-sm text-rose-400";
+        cfsDesc.innerText = `${actualRatio.toFixed(1)}x burst gap causes severe thread pauses!`;
+      } else if (actualRatio > 2) {
+        cfsText.innerText = "MODERATE RISK";
+        cfsText.className = "font-bold text-sm text-amber-400";
+        cfsDesc.innerText = "Bursting may hit period quota limits";
+      } else {
+        cfsText.innerText = "OPTIMAL ✅";
+        cfsText.className = "font-bold text-sm text-emerald-400";
+        cfsDesc.innerText = "Requests & limits closely aligned";
+      }
+    }
+
+    function updateCheckRow(rowId, iconId, badgeId, isPassed, text) {
+      const row = document.getElementById(rowId);
+      const icon = document.getElementById(iconId);
+      const badge = document.getElementById(badgeId);
+
+      if (isPassed) {
+        row.className = "flex items-center justify-between p-2.5 rounded-lg border border-emerald-900/40 bg-emerald-950/20";
+        icon.innerText = "✅";
+        badge.innerText = text;
+        badge.className = "text-emerald-400 font-bold";
+      } else {
+        row.className = "flex items-center justify-between p-2.5 rounded-lg border border-rose-900/40 bg-rose-950/30";
+        icon.innerText = "❌";
+        badge.innerText = text;
+        badge.className = "text-rose-400 font-bold";
+      }
+    }
+
+    // Initialize on load
+    window.onload = function() {
+      recalculate();
+    };
+  </script>
+</body>
+</html>

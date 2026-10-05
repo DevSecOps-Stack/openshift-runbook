@@ -2,6 +2,8 @@
 
 *Concise, high-yield bullet notes for Platform Engineers and SREs. No fluff, scan in 2 minutes.*
 
+> 🎮 **Interactive Admission Simulator:** Test live admission decisions, custom developer inputs, and QoS kernel ratings in the local web tool: [`simulators/K8s_Resource_Governance_Simulator.html`](file:///Users/rakeshsharmapandyala/projects/openshift-runbook/simulators/K8s_Resource_Governance_Simulator.html).
+
 ---
 
 ## ⚡ 1. Requests vs. Limits (Floor vs. Ceiling)

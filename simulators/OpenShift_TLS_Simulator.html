@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenShift TLS Termination — Complete In-Depth Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { box-sizing: border-box; }
+        .packet-anim { transition: left 1.1s ease-in-out, opacity 0.3s; }
+        .dash { stroke-dasharray: 10 6; animation: moveDash 0.8s linear infinite; }
+        @keyframes moveDash { to { stroke-dashoffset: -16; } }
+        @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
+        .pulse { animation: pulse 0.6s ease-in-out; }
+        .zone-label { writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0.15em; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-200 font-sans h-screen flex flex-col overflow-hidden select-none">
+
+<!-- ─── TOOLBAR ─── -->
+<header class="bg-gray-900 border-b border-gray-800 px-5 py-3 flex flex-wrap items-center justify-between gap-3 z-20">
+    <div>
+        <h1 class="text-lg font-bold text-white tracking-tight">OpenShift TLS Complete Simulator</h1>
+        <p class="text-xs text-gray-500">Enterprise-grade packet flow · Edge · Passthrough · Re-encrypt</p>
+    </div>
+    <div class="flex items-center gap-3 flex-wrap">
+        <!-- Browser Bar -->
+        <div class="flex items-center bg-gray-800 rounded-lg border border-gray-700 px-3 py-1.5 gap-2 w-72">
+            <span id="urlLock" class="text-gray-600 text-sm">🔓</span>
+            <span class="text-gray-500 text-xs font-mono">https://</span>
+            <input id="urlInput" type="text" value="payments.bank.anz" class="bg-transparent outline-none text-sm font-mono text-gray-200 w-full" />
+        </div>
+        <!-- Mode -->
+        <select id="modeSelect" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500 font-semibold">
+            <option value="edge">Edge Termination</option>
+            <option value="passthrough">Passthrough</option>
+            <option value="reencrypt">Re-encrypt</option>
+        </select>
+        <button id="resetBtn" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-4 py-1.5 rounded-lg text-sm font-semibold transition">⟳ Reset</button>
+    </div>
+</header>
+
+<!-- ─── CANVAS ─── -->
+<main class="flex-1 flex flex-col items-center justify-center p-4 gap-4 overflow-hidden">
+
+    <!-- Diagram Area -->
+    <div class="w-full max-w-6xl h-[300px] relative bg-gray-900/60 rounded-2xl border border-gray-800 shadow-inner overflow-hidden">
+
+        <!-- Network Zone Backgrounds -->
+        <div class="absolute inset-y-0 left-0 w-[38%] bg-blue-950/20 border-r border-dashed border-blue-900/40 flex items-start justify-start p-2">
+            <span class="text-[10px] font-bold uppercase tracking-widest text-blue-700/60 zone-label">Public Internet</span>
+        </div>
+        <div class="absolute inset-y-0 left-[38%] w-[24%] bg-purple-950/15 border-r border-dashed border-purple-900/40 flex items-start justify-start p-2">
+            <span class="text-[10px] font-bold uppercase tracking-widest text-purple-700/50 zone-label">DMZ / Ingress</span>
+        </div>
+        <div class="absolute inset-y-0 left-[62%] w-[38%] bg-emerald-950/10 flex items-start justify-start p-2">
+            <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-700/40 zone-label">Internal SDN</span>
+        </div>
+
+        <!-- SVG Wires -->
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+            <line id="wire1" x1="14%" y1="50%" x2="50%" y2="50%" stroke-width="4" stroke="#374151" class="dash" />
+            <line id="wire2" x1="50%" y1="50%" x2="86%" y2="50%" stroke-width="4" stroke="#374151" class="dash" />
+        </svg>
+
+        <!-- Wire Labels -->
+        <div id="wireLabel1" class="absolute top-[30%] left-[32%] -translate-x-1/2 text-[11px] font-bold px-2 py-0.5 rounded opacity-0 transition-opacity whitespace-nowrap"></div>
+        <div id="wireLabel2" class="absolute top-[30%] left-[68%] -translate-x-1/2 text-[11px] font-bold px-2 py-0.5 rounded opacity-0 transition-opacity whitespace-nowrap"></div>
+
+        <!-- ── NODE: Browser ── -->
+        <div class="absolute left-[14%] top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10">
+            <div id="nodeBrowser" class="w-[72px] h-[72px] bg-gray-800 rounded-xl flex items-center justify-center border-2 border-gray-700 shadow-lg transition-colors">
+                <svg class="w-9 h-9 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <span class="mt-2 text-xs font-bold text-gray-400">Browser</span>
+            <div id="badgeBrowser" class="mt-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-800 opacity-0 transition-opacity whitespace-nowrap">🔑 Secret-12345</div>
+        </div>
+
+        <!-- ── NODE: HAProxy ── -->
+        <div class="absolute left-[50%] top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10">
+            <div id="nodeHA" class="w-[72px] h-[72px] bg-gray-800 rounded-xl flex items-center justify-center border-2 border-gray-700 shadow-lg transition-colors">
+                <svg class="w-9 h-9 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <span class="mt-2 text-xs font-bold text-gray-400">HAProxy Router</span>
+            <div id="badgeHA" class="mt-1 flex gap-1 opacity-0 transition-opacity">
+                <span id="haKey1" class="hidden text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-800 whitespace-nowrap">🔑 Secret-12345</span>
+                <span id="haKey2" class="hidden text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-purple-900/50 text-purple-300 border border-purple-800 whitespace-nowrap">🔑 Secret-99999</span>
+                <span id="haBlind" class="hidden text-[10px] font-bold px-2 py-0.5 rounded bg-gray-700 text-gray-400 border border-gray-600 whitespace-nowrap">🚫 No Keys</span>
+            </div>
+        </div>
+
+        <!-- ── NODE: Pod ── -->
+        <div class="absolute left-[86%] top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10">
+            <div id="nodePod" class="w-[72px] h-[72px] bg-gray-800 rounded-xl flex items-center justify-center border-2 border-gray-700 shadow-lg transition-colors">
+                <svg class="w-9 h-9 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+            </div>
+            <span class="mt-2 text-xs font-bold text-gray-400">App Pod</span>
+            <div id="badgePod" class="mt-1 flex gap-1 opacity-0 transition-opacity">
+                <span id="podKey1" class="hidden text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-800 whitespace-nowrap">🔑 Secret-12345</span>
+                <span id="podKey2" class="hidden text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-900/50 text-purple-300 border border-purple-800 whitespace-nowrap">🔑 Secret-99999</span>
+            </div>
+        </div>
+
+        <!-- Moving Packet -->
+        <div id="pkt" class="absolute top-1/2 -translate-y-1/2 left-[14%] -translate-x-1/2 z-30 packet-anim opacity-0 px-3 py-1.5 rounded-lg shadow-xl text-[11px] font-bold text-white whitespace-nowrap flex items-center gap-1.5 border border-white/10">
+            <span id="pktIcon"></span><span id="pktText"></span>
+        </div>
+
+    </div>
+
+    <!-- ─── INFO PANEL ─── -->
+    <div class="w-full max-w-5xl bg-gray-900 rounded-2xl border border-gray-800 shadow-lg overflow-hidden flex flex-col">
+        <!-- Header Bar -->
+        <div class="bg-gray-800 px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span id="phasePill" class="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-gray-700 text-gray-400">Setup</span>
+                <h2 id="stepTitle" class="text-lg font-bold text-white">Ready</h2>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="stepCount" class="text-xs text-gray-500 font-mono">0 / 0</span>
+                <button id="nextBtn" class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg font-bold shadow transition-colors flex items-center gap-2 text-sm">
+                    Next Step
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+        </div>
+        <!-- Description -->
+        <div class="px-6 py-5 min-h-[110px] flex items-center">
+            <p id="stepDesc" class="text-[15px] text-gray-300 leading-relaxed">Click <b>Next Step</b> to begin.</p>
+        </div>
+    </div>
+
+</main>
+
+<script>
+// ── DOM refs ──
+const $ = id => document.getElementById(id);
+const nextBtn=$('nextBtn'), resetBtn=$('resetBtn'), modeSelect=$('modeSelect'), urlInput=$('urlInput');
+const pkt=$('pkt'), pktIcon=$('pktIcon'), pktText=$('pktText');
+const wire1=$('wire1'), wire2=$('wire2');
+const wireLabel1=$('wireLabel1'), wireLabel2=$('wireLabel2');
+const nodeBrowser=$('nodeBrowser'), nodeHA=$('nodeHA'), nodePod=$('nodePod');
+const badgeBrowser=$('badgeBrowser'), badgeHA=$('badgeHA'), badgePod=$('badgePod');
+const haKey1=$('haKey1'), haKey2=$('haKey2'), haBlind=$('haBlind');
+const podKey1=$('podKey1'), podKey2=$('podKey2');
+const phasePill=$('phasePill'), stepTitle=$('stepTitle'), stepCount=$('stepCount'), stepDesc=$('stepDesc');
+const urlLock=$('urlLock');
+
+let mode='edge', step=0;
+
+// ── Visual helpers ──
+function resetAll(){
+    pkt.style.opacity='0';
+    wire1.setAttribute('stroke','#374151'); wire2.setAttribute('stroke','#374151');
+    wireLabel1.style.opacity='0'; wireLabel2.style.opacity='0';
+    badgeBrowser.style.opacity='0'; badgeHA.style.opacity='0'; badgePod.style.opacity='0';
+    [haKey1,haKey2,haBlind,podKey1,podKey2].forEach(e=>e.classList.add('hidden'));
+    nodeBrowser.className='w-[72px] h-[72px] bg-gray-800 rounded-xl flex items-center justify-center border-2 border-gray-700 shadow-lg transition-colors';
+    nodeHA.className=nodeBrowser.className; nodePod.className=nodeBrowser.className;
+    urlLock.textContent='🔓'; urlLock.className='text-gray-600 text-sm';
+}
+function setWire(el, color){ el.setAttribute('stroke', color); }
+function showWireLabel(el, text, bg, fg){ el.textContent=text; el.className=`absolute top-[30%] -translate-x-1/2 text-[11px] font-bold px-2 py-0.5 rounded opacity-100 transition-opacity whitespace-nowrap ${bg} ${fg}`; el.style.opacity='1'; el.style.left = el===wireLabel1?'32%':'68%'; }
+function hideWireLabel(el){ el.style.opacity='0'; }
+function glowNode(el, ring){ el.className=`w-[72px] h-[72px] bg-gray-800 rounded-xl flex items-center justify-center border-2 ${ring} shadow-lg transition-colors pulse`; }
+function movePkt(from, to, text, icon, bg){
+    pkt.style.transition='none'; pkt.style.left=from; pkt.style.opacity='1';
+    pktText.innerHTML=text; pktIcon.textContent=icon;
+    pkt.className=`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-30 packet-anim opacity-100 px-3 py-1.5 rounded-lg shadow-xl text-[11px] font-bold text-white whitespace-nowrap flex items-center gap-1.5 border border-white/10 ${bg}`;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ pkt.style.transition='left 1.1s ease-in-out, opacity 0.3s'; pkt.style.left=to; }));
+}
+function hidePkt(){ pkt.style.opacity='0'; }
+
+// ── FLOW DATA ──
+const FLOWS = {
+edge: [
+    { ph:'Setup', t:'Ready', d:'Select <b>Edge Termination</b>. In this mode, HAProxy holds the SSL Certificate and terminates TLS. The Pod receives plain HTTP.', fn:resetAll },
+    { ph:'DNS', t:'Step 1 — DNS Resolution', d:'Browser asks DNS: <i>"Where is <b>{url}</b>?"</i> DNS returns the IP of the F5 Load Balancer / HAProxy Router node.', fn(){ glowNode(nodeBrowser,'border-blue-500'); movePkt('14%','32%','DNS Query: {url}','🌐','bg-cyan-700'); }},
+    { ph:'TCP', t:'Step 2 — TCP 3-Way Handshake', d:'Browser opens a raw TCP connection to HAProxy on port 443. This is <b>not encrypted yet</b> — just a transport channel being established (SYN → SYN-ACK → ACK).', fn(){ movePkt('14%','50%','TCP SYN → SYN-ACK → ACK','📡','bg-gray-600'); }},
+    { ph:'TLS Handshake', t:'Step 3 — Client Hello', d:'Browser sends a <b>TLS Client Hello</b> message over the TCP channel. It includes: supported TLS versions (e.g. TLS 1.3), supported cipher suites (e.g. AES-256-GCM), and the <b>SNI header</b> = <span class="font-mono text-blue-400">{url}</span>.', fn(){ movePkt('14%','50%','Client Hello + SNI: {url}','📨','bg-blue-600'); }},
+    { ph:'TLS Handshake', t:'Step 4 — Server Hello + Certificate', d:'HAProxy responds with: chosen TLS version & cipher, and its <b>Public Certificate</b> (containing its Public Key). This cert is signed by a trusted CA (e.g. DigiCert).', fn(){ glowNode(nodeHA,'border-purple-500'); movePkt('50%','14%','Server Hello + 📜 Public Cert','🔓','bg-purple-600'); }},
+    { ph:'TLS Handshake', t:'Step 5 — Browser Validates Certificate', d:'Browser checks: ✅ Is the cert signed by a trusted CA? ✅ Is the cert not expired? ✅ Does the domain on the cert match <b>{url}</b>? If ANY check fails → connection is <b>aborted</b> immediately.', fn(){ glowNode(nodeBrowser,'border-yellow-500'); hidePkt(); }},
+    { ph:'TLS Handshake', t:'Step 6 — Browser Creates Session Key', d:'Validation passed! Browser generates a <b>brand new 256-bit random session key</b> → <span class="font-mono font-bold text-blue-400">Secret-12345</span>. It encrypts this key using HAProxy\'s Public Key (the "padlock") and sends it.', fn(){ badgeBrowser.style.opacity='1'; movePkt('14%','50%','🔒 Encrypted Secret-12345','🔑','bg-blue-500'); }},
+    { ph:'TLS Handshake', t:'Step 7 — HAProxy Unlocks Session Key', d:'HAProxy uses its <b>Private Key</b> to decrypt the box and extract <span class="font-mono text-blue-400">Secret-12345</span>. Now both sides share the same symmetric key. The slow Public/Private keys are put away.', fn(){ hidePkt(); badgeHA.style.opacity='1'; haKey1.classList.remove('hidden'); setWire(wire1,'#3B82F6'); showWireLabel(wireLabel1,'🔒 Encrypted with Secret-12345','bg-blue-900/70','text-blue-300'); urlLock.textContent='🔒'; urlLock.className='text-green-400 text-sm'; }},
+    { ph:'Active Session', t:'Step 8 — Request: "Check Balance"', d:'You click "Check Balance". Browser encrypts the HTTP request using <span class="font-mono text-blue-400">Secret-12345</span> and sends it over the secure tunnel.', fn(){ movePkt('14%','50%','🔒 Encrypted: GET /balance','📤','bg-blue-500'); }},
+    { ph:'Active Session', t:'Step 9 — HAProxy Decrypts → Plaintext Forward', d:'HAProxy decrypts the packet using <span class="font-mono text-blue-400">Secret-12345</span>. It reads the plain HTTP: <code>GET /balance</code>. Then it forwards this as <b>unencrypted plain text</b> over the internal OpenShift SDN to the Pod.', fn(){ setWire(wire2,'#EF4444'); showWireLabel(wireLabel2,'⚠️ Plaintext HTTP (unencrypted)','bg-red-900/70','text-red-300'); movePkt('50%','86%','📄 Plaintext: GET /balance','⚠️','bg-red-600'); }},
+    { ph:'Active Session', t:'Step 10 — Pod Responds with Balance', d:'Pod processes the request and returns your balance as plain HTTP back to HAProxy. Still unencrypted inside the cluster.', fn(){ movePkt('86%','50%','📄 Plaintext: {balance: $42,000}','⚠️','bg-red-600'); }},
+    { ph:'Active Session', t:'Step 11 — HAProxy Encrypts → Browser', d:'HAProxy takes the plaintext response, <b>encrypts</b> it using <span class="font-mono text-blue-400">Secret-12345</span>, and sends it securely back over the internet to your browser.', fn(){ movePkt('50%','14%','🔒 Encrypted: {balance: $42,000}','📥','bg-blue-500'); }},
+    { ph:'Complete', t:'Step 12 — Browser Displays Balance', d:'Browser decrypts the response using <span class="font-mono text-blue-400">Secret-12345</span> and renders your balance on screen. The session key lives only in RAM and is destroyed when you close the tab.', fn(){ hidePkt(); glowNode(nodeBrowser,'border-green-500'); }},
+],
+passthrough: [
+    { ph:'Setup', t:'Ready', d:'Select <b>Passthrough</b>. In this mode, HAProxy is a <b>blind TCP router</b>. It never decrypts anything. The TLS tunnel goes end-to-end from Browser to the Pod.', fn:resetAll },
+    { ph:'DNS', t:'Step 1 — DNS Resolution', d:'Browser resolves <b>{url}</b> → IP of HAProxy node.', fn(){ glowNode(nodeBrowser,'border-blue-500'); movePkt('14%','32%','DNS Query: {url}','🌐','bg-cyan-700'); }},
+    { ph:'TCP', t:'Step 2 — TCP Handshake', d:'Browser opens a TCP connection to HAProxy on port 443 (SYN → SYN-ACK → ACK).', fn(){ movePkt('14%','50%','TCP SYN → SYN-ACK → ACK','📡','bg-gray-600'); }},
+    { ph:'TLS Handshake', t:'Step 3 — Client Hello with SNI', d:'Browser sends TLS Client Hello. HAProxy reads <b>only</b> the SNI header (<span class="font-mono text-blue-400">{url}</span>) to know where to route. It does <b>NOT</b> decrypt anything.', fn(){ badgeHA.style.opacity='1'; haBlind.classList.remove('hidden'); movePkt('14%','50%','Client Hello + SNI: {url}','📨','bg-blue-600'); }},
+    { ph:'TLS Handshake', t:'Step 4 — HAProxy Forwards Blindly', d:'HAProxy opens a TCP connection to the backend Pod and passes the <b>raw, untouched TLS stream</b> through. It acts as a transparent TCP pipe.', fn(){ movePkt('50%','86%','Raw TLS Stream (untouched)','📦','bg-gray-500'); }},
+    { ph:'TLS Handshake', t:'Step 5 — Pod Presents Its Own Certificate', d:'The <b>App Pod</b> responds directly with its own SSL Certificate (Public Key). This cert must be configured on the Pod itself (e.g. via a mounted TLS Secret).', fn(){ glowNode(nodePod,'border-orange-500'); movePkt('86%','14%','📜 Pod Certificate + Server Hello','🔓','bg-orange-600'); }},
+    { ph:'TLS Handshake', t:'Step 6 — Browser Validates Pod Certificate', d:'Browser checks the Pod\'s certificate: ✅ Trusted CA? ✅ Not expired? ✅ Domain matches <b>{url}</b>? If valid, the browser trusts the Pod directly.', fn(){ glowNode(nodeBrowser,'border-yellow-500'); hidePkt(); }},
+    { ph:'TLS Handshake', t:'Step 7 — Browser Creates Session Key', d:'Browser generates <span class="font-mono font-bold text-blue-400">Secret-12345</span>, encrypts it with the Pod\'s Public Key, and sends it. HAProxy blindly passes this locked box through without opening it.', fn(){ badgeBrowser.style.opacity='1'; movePkt('14%','86%','🔒 Encrypted Secret-12345','🔑','bg-blue-500'); }},
+    { ph:'TLS Handshake', t:'Step 8 — Pod Unlocks Session Key', d:'The Pod uses its Private Key to extract <span class="font-mono text-blue-400">Secret-12345</span>. The tunnel is now fully established end-to-end. HAProxy has <b>zero knowledge</b> of the secret.', fn(){ hidePkt(); badgePod.style.opacity='1'; podKey1.classList.remove('hidden'); setWire(wire1,'#3B82F6'); setWire(wire2,'#3B82F6'); showWireLabel(wireLabel1,'🔒 End-to-end encrypted','bg-blue-900/70','text-blue-300'); showWireLabel(wireLabel2,'🔒 End-to-end encrypted','bg-blue-900/70','text-blue-300'); urlLock.textContent='🔒'; urlLock.className='text-green-400 text-sm'; }},
+    { ph:'Active Session', t:'Step 9 — Request: "Check Balance"', d:'Browser encrypts <code>GET /balance</code> with <span class="font-mono text-blue-400">Secret-12345</span>. HAProxy receives encrypted bytes it <b>cannot read</b> and forwards them to the Pod.', fn(){ movePkt('14%','86%','🔒 E2E Encrypted: GET /balance','📤','bg-blue-500'); }},
+    { ph:'Active Session', t:'Step 10 — Pod Decrypts, Processes & Responds', d:'Pod decrypts with <span class="font-mono text-blue-400">Secret-12345</span>, reads the request, and encrypts the balance response with the same key. HAProxy passes the encrypted response back without reading it.', fn(){ movePkt('86%','14%','🔒 E2E Encrypted: {balance: $42,000}','📥','bg-blue-500'); }},
+    { ph:'Complete', t:'Step 11 — Browser Displays Balance', d:'Browser decrypts and renders. The entire path was encrypted. Even if a hacker compromises the OpenShift internal SDN, they see only encrypted gibberish between HAProxy and the Pod.', fn(){ hidePkt(); glowNode(nodeBrowser,'border-green-500'); }},
+],
+reencrypt: [
+    { ph:'Setup', t:'Ready', d:'Select <b>Re-encrypt</b>. This mode creates <b>two separate TLS tunnels</b> with two different session keys. HAProxy can inspect traffic in the middle, but the internal leg is also encrypted.', fn:resetAll },
+    { ph:'DNS', t:'Step 1 — DNS Resolution', d:'Browser resolves <b>{url}</b> → IP of HAProxy node.', fn(){ glowNode(nodeBrowser,'border-blue-500'); movePkt('14%','32%','DNS Query: {url}','🌐','bg-cyan-700'); }},
+    { ph:'TCP', t:'Step 2 — TCP Handshake', d:'Browser opens a TCP connection to HAProxy on port 443.', fn(){ movePkt('14%','50%','TCP SYN → SYN-ACK → ACK','📡','bg-gray-600'); }},
+    { ph:'Handshake 1 (External)', t:'Step 3 — Client Hello', d:'Browser sends TLS Client Hello with SNI = <span class="font-mono text-blue-400">{url}</span>.', fn(){ movePkt('14%','50%','Client Hello + SNI: {url}','📨','bg-blue-600'); }},
+    { ph:'Handshake 1 (External)', t:'Step 4 — HAProxy Presents External Cert', d:'HAProxy responds with its <b>external</b> public certificate (signed by DigiCert/public CA). Browser validates it.', fn(){ glowNode(nodeHA,'border-purple-500'); movePkt('50%','14%','📜 External Cert + Server Hello','🔓','bg-purple-600'); }},
+    { ph:'Handshake 1 (External)', t:'Step 5 — External Session Key Created', d:'Browser creates <span class="font-mono font-bold text-blue-400">Secret-12345</span>, encrypts it with HAProxy\'s Public Key, and sends it. HAProxy unlocks it. <b>External tunnel established.</b>', fn(){ hidePkt(); badgeBrowser.style.opacity='1'; badgeHA.style.opacity='1'; haKey1.classList.remove('hidden'); setWire(wire1,'#3B82F6'); showWireLabel(wireLabel1,'🔒 Encrypted (Secret-12345)','bg-blue-900/70','text-blue-300'); urlLock.textContent='🔒'; urlLock.className='text-green-400 text-sm'; }},
+    { ph:'Handshake 2 (Internal)', t:'Step 6 — HAProxy Initiates Internal TLS', d:'HAProxy turns to the internal network and starts a <b>brand new, second</b> TLS handshake with the App Pod. It sends a Client Hello to the Pod.', fn(){ movePkt('50%','86%','Internal Client Hello','📨','bg-purple-600'); }},
+    { ph:'Handshake 2 (Internal)', t:'Step 7 — Pod Presents Internal Cert', d:'The Pod responds with its <b>internal</b> cluster certificate (signed by OpenShift\'s internal CA). HAProxy validates this cert using the <b>destinationCACertificate</b> configured on the OpenShift Route.', fn(){ glowNode(nodePod,'border-orange-500'); movePkt('86%','50%','📜 Internal Cert + Server Hello','🔓','bg-orange-600'); }},
+    { ph:'Handshake 2 (Internal)', t:'Step 8 — Internal Session Key Created', d:'HAProxy creates <span class="font-mono font-bold text-purple-400">Secret-99999</span> (completely different from Secret-12345), encrypts it with the Pod\'s Public Key, and sends it. Pod unlocks it. <b>Internal tunnel established.</b>', fn(){ hidePkt(); haKey2.classList.remove('hidden'); badgePod.style.opacity='1'; podKey2.classList.remove('hidden'); setWire(wire2,'#8B5CF6'); showWireLabel(wireLabel2,'🔒 Encrypted (Secret-99999)','bg-purple-900/70','text-purple-300'); }},
+    { ph:'Active Session', t:'Step 9 — Request: "Check Balance"', d:'Browser encrypts <code>GET /balance</code> with <span class="font-mono text-blue-400">Secret-12345</span> and sends it over the external tunnel.', fn(){ movePkt('14%','50%','🔒 Encrypted (Secret-12345)','📤','bg-blue-500'); }},
+    { ph:'Active Session', t:'Step 10 — HAProxy Decrypts → Inspects → Re-encrypts', d:'HAProxy decrypts using <span class="font-mono text-blue-400">Secret-12345</span>, reads the plain HTTP, can run WAF checks or inject headers, then <b>re-encrypts</b> using <span class="font-mono text-purple-400">Secret-99999</span> and forwards.', fn(){ movePkt('50%','86%','🔒 Re-encrypted (Secret-99999)','🔄','bg-purple-500'); }},
+    { ph:'Active Session', t:'Step 11 — Pod Decrypts & Responds', d:'Pod decrypts using <span class="font-mono text-purple-400">Secret-99999</span>, processes the request, encrypts the balance with <span class="font-mono text-purple-400">Secret-99999</span>, and sends it back.', fn(){ movePkt('86%','50%','🔒 Encrypted (Secret-99999)','📥','bg-purple-500'); }},
+    { ph:'Active Session', t:'Step 12 — HAProxy Re-encrypts → Browser', d:'HAProxy decrypts with <span class="font-mono text-purple-400">Secret-99999</span>, then re-encrypts with <span class="font-mono text-blue-400">Secret-12345</span>, and sends the response over the external tunnel.', fn(){ movePkt('50%','14%','🔒 Encrypted (Secret-12345)','📥','bg-blue-500'); }},
+    { ph:'Complete', t:'Step 13 — Browser Displays Balance', d:'Browser decrypts and renders. Both legs were encrypted at all times. HAProxy could inspect traffic (for security), and the internal SDN was never exposed to plain text.', fn(){ hidePkt(); glowNode(nodeBrowser,'border-green-500'); }},
+]
+};
+
+// ── Render ──
+function render(){
+    const flow = FLOWS[mode], s = flow[step], url = urlInput.value||'payments.bank.anz';
+    // Phase pill color
+    const phColors = { Setup:'bg-gray-700 text-gray-400', DNS:'bg-cyan-800 text-cyan-300', TCP:'bg-gray-600 text-gray-300', 'TLS Handshake':'bg-amber-700 text-amber-200', 'Handshake 1 (External)':'bg-blue-800 text-blue-200', 'Handshake 2 (Internal)':'bg-purple-800 text-purple-200', 'Active Session':'bg-emerald-800 text-emerald-200', Complete:'bg-green-700 text-green-200' };
+    const phC = phColors[s.ph] || 'bg-gray-700 text-gray-400';
+    phasePill.className = `text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${phC}`;
+    phasePill.textContent = s.ph;
+    stepTitle.textContent = s.t;
+    stepDesc.innerHTML = s.d.replace(/\{url\}/g, url);
+    stepCount.textContent = `${step} / ${flow.length-1}`;
+    // Button
+    if(step===flow.length-1){ nextBtn.innerHTML='Restart ⟳'; nextBtn.className='bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-lg font-bold shadow transition-colors flex items-center gap-2 text-sm'; }
+    else { nextBtn.innerHTML='Next Step <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>'; nextBtn.className='bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg font-bold shadow transition-colors flex items-center gap-2 text-sm'; }
+    s.fn();
+}
+nextBtn.onclick=()=>{ const f=FLOWS[mode]; step = step<f.length-1 ? step+1 : 0; render(); };
+resetBtn.onclick=()=>{ step=0; render(); };
+modeSelect.onchange=e=>{ mode=e.target.value; step=0; render(); };
+render();
+</script>
+</body>
+</html>

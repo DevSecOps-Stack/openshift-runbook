@@ -55,11 +55,13 @@ When a node hits 96% RAM (`MemoryPressure`), Kubelet evicts pods like throwing p
 
 ---
 
-## 🧮 4. The 10-Replica Scenario (Policy YAML vs. Dev YAML)
+## 🧮 4. The Complete Policy YAML (The Single Source of Truth)
 
-### A. The Platform Policy (Guardrails & Budget)
+### A. The Master Platform Policy Manifests
 ```yaml
-# 1. CONTAINER GUARDRAILS
+# ========================================================
+# 1. CONTAINER GUARDRAILS & DEFAULTS
+# ========================================================
 apiVersion: v1
 kind: LimitRange
 metadata:
@@ -68,15 +70,30 @@ metadata:
 spec:
   limits:
   - type: Container
+    # ── REQUESTS FAMILY (The Floor) ──
     min:
-      cpu: "50m"                  # Min 50 millicores per container
+      cpu: "50m"                  # [RULE 1] Validation: Request must be >= 50m
+      memory: "64Mi"
+    defaultRequest:
+      cpu: "100m"                 # [RULE 2] Auto-Fill: Injected if 'requests' omitted
+      memory: "256Mi"
+
+    # ── LIMITS FAMILY (The Ceiling) ──
     max:
-      cpu: "4"                    # Max 4 CPUs per container
+      cpu: "4"                    # [RULE 3] Validation: Limit must be <= 4
+      memory: "8Gi"
+    default:
+      cpu: "500m"                 # [RULE 4] Auto-Fill: Injected if 'limits' omitted
+      memory: "1Gi"
+
+    # ── BURST RATIO (The Gap) ──
     maxLimitRequestRatio:
-      cpu: "2"                    # Limit cannot exceed 2x the Request!
+      cpu: "2"                    # [RULE 5] Validation: Limit/Request gap <= 2x!
 
 ---
-# 2. NAMESPACE AGGREGATE BUDGET
+# ========================================================
+# 2. NAMESPACE AGGREGATE BUDGET CEILING
+# ========================================================
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -84,20 +101,36 @@ metadata:
   namespace: payment-apps
 spec:
   hard:
-    requests.cpu: "20"            # Max 20 vCPUs total requested
-    limits.cpu: "50"              # Max 50 vCPUs total limited
+    requests.cpu: "20"            # Max 20 vCPUs total requested in namespace
+    limits.cpu: "50"              # Max 50 vCPUs total limited in namespace
+    requests.memory: "32Gi"       # Max 32 GiB total requested in namespace
+    limits.memory: "64Gi"         # Max 64 GiB total limited in namespace
 ```
 
-### B. What the Developer Submits
+---
+
+### B. How the Master Policy Evaluates 4 Real-World Developer Scenarios:
+
+| Scenario | What Developer Submits in Deployment | What Happens (Mapped to Master Policy) | Final Admitted Pod Values |
+| :--- | :--- | :--- | :--- |
+| **1. Dev Omitted Everything** | `resources: {}` (forgot requests & limits) | `LimitRange` auto-fills `[RULE 2]` & `[RULE 4]`. Passes `ResourceQuota` gate! | `req: 100m / 256Mi`<br>`lim: 500m / 1Gi` |
+| **2. Dev Specified Requests Only** | `resources: { requests: { cpu: "250m" } }` | `LimitRange` keeps 250m request, auto-injects `[RULE 4]` for limits. | `req: 250m`<br>`lim: 500m` |
+| **3. Dev Below Minimum** | `resources: { requests: { cpu: "10m" } }` | **REJECTED at Admission!** Violates `[RULE 1]` (`10m < 50m min`). | Pod not created ❌ |
+| **4. Dev 10-Replica Multiplier** | `replicas: 10`, `req: 1 CPU`, `lim: 10 CPU` | **REJECTED at Admission!** Breaks 3 separate gates (see Section 5 below). | Pod not created ❌ |
+
+---
+
+## 🚪 5. The 2 Admission Gates: The 10-Replica Breakdown
+
+When the developer applies **Scenario 4**:
 ```yaml
-# 3. DEVELOPER DEPLOYMENT
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment-api
   namespace: payment-apps
 spec:
-  replicas: 10                    # ◄── Multiplies everything by 10!
+  replicas: 10                    # ◄── Multiplier: 10 Pods!
   template:
     spec:
       containers:
@@ -109,27 +142,21 @@ spec:
             cpu: "10"             # ◄── Total: 10 x 10 = 100 vCPUs limited!
 ```
 
-* **The Math:**
-  * **Total Requests:** $10 \text{ replicas} \times 1\text{ CPU} = \mathbf{10\text{ vCPUs}}$ (claims 10 CPUs on cluster nodes).
-  * **Total Limits:** $10 \text{ replicas} \times 10\text{ CPU} = \mathbf{100\text{ vCPUs}}$ (demands 100 CPUs against namespace limit quota).
-
----
-
-## 🚪 5. The 2 Admission Gates: Is It "Within Range"?
+### The Step-by-Step Gate Evaluation:
 
 ```
 DEVELOPER APPLIES DEPLOYMENT: (replicas: 10, req: 1 CPU, lim: 10 CPU)
   │
   ▼
 GATE 1: LimitRange (Evaluates SINGLE container: req: 1, lim: 10)
-  • Is 1 CPU >= min (50m)?                             ──► ✅ Pass (1000m >= 50m)
-  • Is 10 CPU <= max (4 CPU)?                          ──► ❌ REJECTED! (10 > 4)
-  • Is Ratio (10/1 = 10x) <= maxLimitRequestRatio (2x)? ──► ❌ REJECTED! (10x > 2x)
+  • Is 1 CPU >= min (50m) [RULE 1]?                    ──► ✅ Pass (1000m >= 50m)
+  • Is 10 CPU <= max (4 CPU) [RULE 3]?                 ──► ❌ REJECTED! (10 > 4 max)
+  • Is Ratio (10/1 = 10x) <= maxLimitRequestRatio [RULE 5]? ──► ❌ REJECTED! (10x > 2x gap)
   │
-  ▼ (If Gate 1 passes...)
+  ▼ (If Gate 1 were to pass...)
 GATE 2: ResourceQuota (Evaluates MULTIPLIED SUM: 10 replicas)
-  • Total Requests (10 x 1 = 10) <= hard requests.cpu (20)?  ──► ✅ Pass (10 <= 20)
-  • Total Limits (10 x 10 = 100) <= hard limits.cpu (50)?    ──► ❌ REJECTED! (100 > 50)
+  • Total Requests: 10 pods x 1 CPU = 10 vCPUs <= hard: 20? ──► ✅ Pass (10 <= 20)
+  • Total Limits: 10 pods x 10 CPU = 100 vCPUs <= hard: 50? ──► ❌ REJECTED! (100 > 50)
   │
   ▼ (If Gate 2 passes...)
 GATE 3: Kube-Scheduler (Physical Node Placement)

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enterprise Grafana — 3-Line Namespace Quota & Capacity Analyzer</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    input:focus { outline: none; ring: 2px; }
+    .glow-green { filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.4)); }
+    .glow-yellow { filter: drop-shadow(0 0 6px rgba(234, 179, 8, 0.4)); }
+    .glow-red { filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.4)); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans antialiased">
+
+  <!-- Header -->
+  <header class="max-w-7xl mx-auto mb-6 flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-800 pb-5">
+    <div>
+      <div class="flex items-center gap-3">
+        <span class="text-3xl">📈</span>
+        <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-amber-400 via-emerald-300 to-sky-400 bg-clip-text text-transparent">
+          Enterprise Grafana Quota & Capacity Analyzer
+        </h1>
+      </div>
+      <p class="text-slate-400 text-sm mt-1">
+        The Production <strong class="text-slate-200">3-Line Overlay</strong>: 
+        <span class="text-rose-400 font-semibold">Hard Quota (Red)</span> vs. 
+        <span class="text-amber-400 font-semibold">Reserved Requests (Yellow)</span> vs. 
+        <span class="text-emerald-400 font-semibold">Actual Kernel Usage (Green)</span>.
+      </p>
+    </div>
+    <div class="mt-4 md:mt-0 flex gap-2">
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-950 text-emerald-300 border border-emerald-800">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Thanos Querier Simulation
+      </span>
+    </div>
+  </header>
+
+  <!-- Interactive 1-Click Presets -->
+  <section class="max-w-7xl mx-auto mb-6">
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-lg">
+      <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">⚡ 1-Click Production Presets:</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <button onclick="applyPreset('hoarder')" class="text-left px-3 py-2 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/60 transition group">
+          <div class="text-xs font-bold text-amber-300 group-hover:text-amber-200">💸 1. The Capacity Hoarder</div>
+          <div class="text-xs text-slate-400">Reserved 35 cores, using only 3 cores (Massive 91% waste gap!)</div>
+        </button>
+        <button onclick="applyPreset('bottleneck')" class="text-left px-3 py-2 rounded-lg bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/60 transition group">
+          <div class="text-xs font-bold text-rose-300 group-hover:text-rose-200">🛑 2. The Quota Ceiling Crash</div>
+          <div class="text-xs text-slate-400">Reserved 48 of 50 cores (Zero headroom, Gate 2 rejects scale)</div>
+        </button>
+        <button onclick="applyPreset('optimal')" class="text-left px-3 py-2 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/60 transition group">
+          <div class="text-xs font-bold text-emerald-300 group-hover:text-emerald-200">✅ 3. The Rightsized SRE App</div>
+          <div class="text-xs text-slate-400">Requests match 75% peak usage, ample headroom, low waste</div>
+        </button>
+        <button onclick="applyPreset('throttled')" class="text-left px-3 py-2 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-800/60 transition group">
+          <div class="text-xs font-bold text-purple-300 group-hover:text-purple-200">⚡ 4. The CFS Throttling Spike</div>
+          <div class="text-xs text-slate-400">Usage exceeds pod limits $\rightarrow$ Linux CFS freezes threads</div>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Grid -->
+  <main class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: Controls & Sliders (4 Cols) -->
+    <div class="lg:col-span-4 space-y-5">
+
+      <!-- Card 1: Namespace ResourceQuota (Hard Line) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <h2 class="font-bold text-xs text-rose-400 flex items-center gap-1.5 uppercase tracking-wide">
+            <span>🛡️</span> Line 1: Hard Quota Ceiling
+          </h2>
+          <span class="text-[11px] px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800">kube-state-metrics</span>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300">hard.requests.cpu (<span id="quotaVal" class="text-rose-400 font-bold">50</span> vCPUs)</span>
+            <span class="text-slate-500 text-xs">Total Room</span>
+          </div>
+          <input type="range" id="inputQuota" min="10" max="100" step="5" value="50"
+            class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+            oninput="document.getElementById('quotaVal').innerText = this.value; renderChart();">
+        </div>
+      </div>
+
+      <!-- Card 2: Workload Pods (Reserved Requests Line) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <h2 class="font-bold text-xs text-amber-400 flex items-center gap-1.5 uppercase tracking-wide">
+            <span>📋</span> Line 2: Reserved Requests
+          </h2>
+          <span class="text-[11px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">kube-state-metrics</span>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">Replicas Running (<span id="podsVal" class="text-amber-400 font-bold">10</span> pods)</span>
+            </div>
+            <input type="range" id="inputPods" min="1" max="25" value="10"
+              class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              oninput="document.getElementById('podsVal').innerText = this.value; renderChart();">
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">Request per Pod (<span id="reqPodVal" class="text-amber-400 font-bold">2.0</span> cores)</span>
+            </div>
+            <input type="range" id="inputReqPod" min="0.1" max="5.0" step="0.1" value="2.0"
+              class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              oninput="document.getElementById('reqPodVal').innerText = parseFloat(this.value).toFixed(1); renderChart();">
+          </div>
+
+          <div class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-xs">
+            <div class="text-slate-400">Total Reserved Paper Footprint:</div>
+            <div class="font-bold text-sm text-amber-400 font-mono mt-0.5" id="reservedMath">10 pods &times; 2.0 = 20.0 vCPUs</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Kernel Real-Time Traffic (Actual Usage Line) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <h2 class="font-bold text-xs text-emerald-400 flex items-center gap-1.5 uppercase tracking-wide">
+            <span>⚡</span> Line 3: Actual Runtime Usage
+          </h2>
+          <span class="text-[11px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">cAdvisor (cgroups)</span>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">App Traffic Load (<span id="trafficVal" class="text-emerald-400 font-bold">20</span>%)</span>
+              <span class="text-slate-500 text-xs">Current Workload</span>
+            </div>
+            <input type="range" id="inputTraffic" min="5" max="150" step="5" value="20"
+              class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+              oninput="document.getElementById('trafficVal').innerText = this.value; renderChart();">
+          </div>
+
+          <div class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-xs">
+            <div class="text-slate-400">Physical CPU Core Burn:</div>
+            <div class="font-bold text-sm text-emerald-400 font-mono mt-0.5" id="actualUsageMath">4.0 vCPUs (cAdvisor)</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: The Live Grafana Panel & FinOps Diagnostics (8 Cols) -->
+    <div class="lg:col-span-8 space-y-5">
+
+      <!-- The Real-Time Graph Canvas Panel -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 border-b border-slate-800 pb-3 gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">📊</span>
+            <div>
+              <div class="font-bold text-sm text-slate-100">Panel: Namespace CPU Capacity & Quota Overlay</div>
+              <div class="text-xs text-slate-400 font-mono">namespace="payments-prod" | Datasource: Thanos-Querier</div>
+            </div>
+          </div>
+
+          <!-- The Graph Legend -->
+          <div class="flex items-center gap-3 text-xs font-semibold">
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 h-0.5 bg-rose-500"></span>
+              <span class="text-rose-400">Line 1: Quota Hard</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 h-0.5 bg-amber-400"></span>
+              <span class="text-amber-400">Line 2: Reserved</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-3 h-1 bg-emerald-400"></span>
+              <span class="text-emerald-400">Line 3: Actual Usage</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Canvas Chart -->
+        <div class="relative w-full h-64 bg-slate-950/90 rounded-lg p-2 border border-slate-800">
+          <canvas id="quotaChart" class="w-full h-full"></canvas>
+        </div>
+
+        <div class="flex justify-between items-center text-xs text-slate-500 mt-2 px-1">
+          <span>-30m</span>
+          <span>-20m</span>
+          <span>-10m</span>
+          <span>Now (Live)</span>
+        </div>
+      </div>
+
+      <!-- Real-Time SRE & FinOps Diagnostic Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        <!-- Card 1: Headroom Remaining -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md">
+          <div class="text-xs text-slate-400 font-medium mb-1">Gate 2 Admission Headroom</div>
+          <div id="statHeadroom" class="text-2xl font-bold font-mono text-sky-400">30.0 vCPUs</div>
+          <div id="statHeadroomDesc" class="text-xs text-slate-500 mt-1">Remaining before pods rejected</div>
+          <div class="mt-2 w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
+            <div id="barHeadroom" class="h-1.5 bg-sky-500 rounded-full" style="width: 40%"></div>
+          </div>
+        </div>
+
+        <!-- Card 2: Waste & Hoarding Gap -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md">
+          <div class="text-xs text-slate-400 font-medium mb-1">FinOps Waste Gap (Idle Paid)</div>
+          <div id="statWaste" class="text-2xl font-bold font-mono text-amber-400">16.0 vCPUs</div>
+          <div id="statWasteDesc" class="text-xs text-slate-500 mt-1">80% of reserved capacity idle</div>
+          <div class="mt-2 w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
+            <div id="barWaste" class="h-1.5 bg-amber-500 rounded-full" style="width: 80%"></div>
+          </div>
+        </div>
+
+        <!-- Card 3: Throttling / Saturation State -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md">
+          <div class="text-xs text-slate-400 font-medium mb-1">Linux Kernel Status</div>
+          <div id="statKernel" class="text-2xl font-bold font-mono text-emerald-400">HEALTHY ✅</div>
+          <div id="statKernelDesc" class="text-xs text-slate-500 mt-1">Zero CFS thread pauses</div>
+          <div class="mt-2 w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
+            <div id="barKernel" class="h-1.5 bg-emerald-500 rounded-full" style="width: 20%"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Exact PromQL Queries Behind This Panel -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md">
+        <div class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-2">
+          <span>🔍</span> Exact PromQL Queries Behind These 3 Lines
+        </div>
+        <div class="space-y-2 text-xs font-mono">
+          <div class="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between">
+            <div>
+              <span class="text-rose-400 font-bold mr-2">[Line 1]</span>
+              <span class="text-slate-300">kube_resourcequota{namespace="payments-prod", resource="requests.cpu", type="hard"}</span>
+            </div>
+            <span class="text-[10px] text-slate-500">kube-state-metrics</span>
+          </div>
+          <div class="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between">
+            <div>
+              <span class="text-amber-400 font-bold mr-2">[Line 2]</span>
+              <span class="text-slate-300">sum(kube_pod_container_resource_requests{namespace="payments-prod", resource="cpu"})</span>
+            </div>
+            <span class="text-[10px] text-slate-500">kube-state-metrics</span>
+          </div>
+          <div class="p-2 rounded bg-slate-950 border border-slate-800 flex items-center justify-between">
+            <div>
+              <span class="text-emerald-400 font-bold mr-2">[Line 3]</span>
+              <span class="text-slate-300">sum(rate(container_cpu_usage_seconds_total{namespace="payments-prod"}[5m]))</span>
+            </div>
+            <span class="text-[10px] text-slate-500">cAdvisor</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Interactive JavaScript Engine -->
+  <script>
+    function applyPreset(name) {
+      const q = document.getElementById('inputQuota');
+      const p = document.getElementById('inputPods');
+      const r = document.getElementById('inputReqPod');
+      const t = document.getElementById('inputTraffic');
+
+      if (name === 'hoarder') {
+        q.value = 50;
+        p.value = 10;
+        r.value = 3.5;
+        t.value = 10; // 10% usage of 35 cores = 3.5 cores
+      } else if (name === 'bottleneck') {
+        q.value = 50;
+        p.value = 16;
+        r.value = 3.0; // 16 * 3 = 48 cores
+        t.value = 70;
+      } else if (name === 'optimal') {
+        q.value = 50;
+        p.value = 10;
+        r.value = 2.0; // 20 cores
+        t.value = 75; // 15 cores
+      } else if (name === 'throttled') {
+        q.value = 60;
+        p.value = 8;
+        r.value = 2.0; // 16 cores
+        t.value = 140; // 140% traffic causes CFS throttling
+      }
+
+      document.getElementById('quotaVal').innerText = q.value;
+      document.getElementById('podsVal').innerText = p.value;
+      document.getElementById('reqPodVal').innerText = parseFloat(r.value).toFixed(1);
+      document.getElementById('trafficVal').innerText = t.value;
+
+      renderChart();
+    }
+
+    function renderChart() {
+      const quota = parseFloat(document.getElementById('inputQuota').value);
+      const pods = parseInt(document.getElementById('inputPods').value);
+      const reqPerPod = parseFloat(document.getElementById('inputReqPod').value);
+      const trafficPct = parseFloat(document.getElementById('inputTraffic').value) / 100;
+
+      const totalReserved = pods * reqPerPod;
+      const actualUsage = totalReserved * trafficPct;
+
+      // Update Card Math
+      document.getElementById('reservedMath').innerText = `${pods} pods \u00D7 ${reqPerPod.toFixed(1)} = ${totalReserved.toFixed(1)} vCPUs`;
+      document.getElementById('actualUsageMath').innerText = `${actualUsage.toFixed(1)} vCPUs (cAdvisor)`;
+
+      // Headroom & Waste Calculations
+      const headroom = Math.max(0, quota - totalReserved);
+      const waste = Math.max(0, totalReserved - actualUsage);
+      const wastePct = totalReserved > 0 ? (waste / totalReserved) * 100 : 0;
+
+      document.getElementById('statHeadroom').innerText = `${headroom.toFixed(1)} vCPUs`;
+      document.getElementById('barHeadroom').style.width = `${Math.min(100, (totalReserved / quota) * 100)}%`;
+
+      if (headroom <= 2) {
+        document.getElementById('statHeadroom').className = "text-2xl font-bold font-mono text-rose-400";
+        document.getElementById('statHeadroomDesc').innerText = "CRITICAL: ResourceQuota will block new pods!";
+      } else {
+        document.getElementById('statHeadroom').className = "text-2xl font-bold font-mono text-sky-400";
+        document.getElementById('statHeadroomDesc').innerText = "Safe headroom for pod scaling";
+      }
+
+      document.getElementById('statWaste').innerText = `${waste.toFixed(1)} vCPUs`;
+      document.getElementById('statWasteDesc').innerText = `${wastePct.toFixed(0)}% of booked capacity idle`;
+      document.getElementById('barWaste').style.width = `${Math.min(100, wastePct)}%`;
+
+      const statK = document.getElementById('statKernel');
+      const statKDesc = document.getElementById('statKernelDesc');
+      if (trafficPct > 1.0) {
+        statK.innerText = "THROTTLED! ⚠️";
+        statK.className = "text-2xl font-bold font-mono text-rose-400";
+        statKDesc.innerText = "CFS pausing container execution threads";
+      } else if (trafficPct > 0.85) {
+        statK.innerText = "HIGH LOAD ⚡";
+        statK.className = "text-2xl font-bold font-mono text-amber-400";
+        statKDesc.innerText = "Approaching reserved limits";
+      } else {
+        statK.innerText = "HEALTHY ✅";
+        statK.className = "text-2xl font-bold font-mono text-emerald-400";
+        statKDesc.innerText = "Zero CFS thread pauses";
+      }
+
+      // Draw Canvas Chart
+      const canvas = document.getElementById('quotaChart');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      
+      canvas.width = canvas.parentElement.clientWidth * dpr;
+      canvas.height = canvas.parentElement.clientHeight * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = canvas.parentElement.clientWidth;
+      const h = canvas.parentElement.clientHeight;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Max chart scale is higher of quota or actual usage + 15%
+      const maxVal = Math.max(quota * 1.15, actualUsage * 1.2, 50);
+
+      function getY(val) {
+        return h - (val / maxVal) * (h - 20) - 10;
+      }
+
+      // Draw Grid Lines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const val = (maxVal / 4) * i;
+        const y = getY(val);
+        ctx.beginPath();
+        ctx.moveTo(35, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px monospace';
+        ctx.fillText(val.toFixed(0), 5, y + 3);
+      }
+
+      // 1. Draw LINE 1: Hard Quota Ceiling (Dashed Red Line)
+      const quotaY = getY(quota);
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(35, quotaY);
+      ctx.lineTo(w, quotaY);
+      ctx.stroke();
+
+      ctx.fillStyle = '#f43f5e';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`Hard Quota: ${quota} vCPUs`, w - 160, quotaY - 5);
+
+      // 2. Draw LINE 2: Reserved Requests (Solid Amber Line)
+      const reservedY = getY(totalReserved);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(35, reservedY);
+      ctx.lineTo(w, reservedY);
+      ctx.stroke();
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`Reserved Requests: ${totalReserved.toFixed(1)} vCPUs`, w - 210, reservedY - 5);
+
+      // 3. Draw LINE 3: Actual Real Usage (Dynamic Green Line with wave)
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+
+      const points = 30;
+      const step = (w - 35) / points;
+      for (let i = 0; i <= points; i++) {
+        const x = 35 + i * step;
+        // Add subtle wave fluctuation to simulate real traffic
+        const wave = Math.sin(i * 0.4) * (actualUsage * 0.12) + (Math.cos(i * 0.8) * (actualUsage * 0.06));
+        const val = Math.max(0, actualUsage + wave);
+        const y = getY(val);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Shaded area under actual usage
+      ctx.lineTo(w, h - 10);
+      ctx.lineTo(35, h - 10);
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+      ctx.fill();
+
+      ctx.fillStyle = '#10b981';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`Actual Usage: ${actualUsage.toFixed(1)} vCPUs`, w - 170, getY(actualUsage) + 18);
+    }
+
+    window.onload = function() {
+      renderChart();
+    };
+    window.onresize = function() {
+      renderChart();
+    };
+  </script>
+</body>
+</html>

@@ -112,10 +112,7 @@ extendedKeyUsage = serverAuth
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1 = *.apps.okd-sno.brainybots.cloud
-DNS.2 = apps.okd-sno.brainybots.cloud
-DNS.3 = *.edge-app.apps.okd-sno.brainybots.cloud
-DNS.4 = app.edge-app.apps.okd-sno.brainybots.cloud
+DNS.1 = *.edge-app.apps.okd-sno.brainybots.cloud
 EOF
 
 openssl x509 -req -in server.csr \

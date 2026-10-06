@@ -3,7 +3,7 @@
 *A persistent, daily-resumable study dashboard. Every study session begins here and updates the active bookmark so we pick up seamlessly without friction.*
 
 **Last Updated:** 06-Oct-2026  
-**Current Active Bookmark:** 👉 **Topic 3: Observability (Prometheus, Grafana & Alerts)** — *Currently Drilling*  
+**Current Active Bookmark:** 👉 **Topic 4: Identity & Governance (LDAP + RBAC)** — *Next Up*  
 **Target Completion:** Comprehensive Enterprise Interview Readiness across all 7 core modules.
 
 ---
@@ -14,7 +14,7 @@
 |---|---|---|---|---|---|
 | **1** | **Ingress & Traffic Management** | ✅ **COMPLETED** | [`interview/haproxy-ingress.md`](interview/haproxy-ingress.md)<br>[`interview/ingress-tls-certificates.md`](interview/ingress-tls-certificates.md) | • Ingress Operator vs. Router Pod<br>• UNIX Socket dynamic updates (`<10ms`)<br>• Master-Worker `SIGUSR1` reloads<br>• 3 TLS Archetypes: Edge / Pass-Through / Re-encrypt<br>• Router sharding & `L6RSP` backend SSL triage | Mastered & Drilled ✅ |
 | **2** | **Storage: Dell PowerMax & NetApp Trident** | ✅ **COMPLETED** | [`interview/storage-pmax-trident.md`](interview/storage-pmax-trident.md) | • PowerMax (Tier-0 Block/FC/RWO) vs. Trident (NFS/RWX)<br>• Linux Host: FC, WWNs, `multipathd` (`round-robin 0`)<br>• NetApp: SVM, FlexVols, Export Policies, FlexClones<br>• 4-Step Stale Lock recovery (`VolumeAttachment`)<br>• 6-broker Kafka production case study | Mastered & Drilled ✅ |
-| **3** | **Observability: Prometheus, Grafana & Alerts** | 🟡 **IN PROGRESS** | [`interview/alerts-prometheus-grafana.md`](interview/alerts-prometheus-grafana.md) | • CMO vs User Workload Monitoring (UWM)<br>• `cluster-monitoring-config` & Thanos Querier<br>• `PrometheusRule` CRD & Prometheus Operator<br>• Alert lifecycle: Inactive $\rightarrow$ Pending $\rightarrow$ Firing<br>• Alertmanager routing trees, grouping & inhibition | Interactive Drill & Mastery |
+| **3** | **Observability: Prometheus, Grafana & Alerts** | ✅ **COMPLETED** | [`interview/alerts-prometheus-grafana.md`](interview/alerts-prometheus-grafana.md)<br>• [`interview/grafana-enterprise-architecture.md`](interview/grafana-enterprise-architecture.md)<br>• [`interview/lab-observability-end-to-end.md`](interview/lab-observability-end-to-end.md) | • CMO vs User Workload Monitoring (UWM)<br>• Collector wire mechanics (`cAdvisor`, `node-exporter`, `kube-state-metrics`)<br>• Thanos Querier HA gRPC deduplication & OAuth RBAC<br>• Top 10 SRE PromQL recipes<br>• Enterprise Grafana datasource & template variables | Mastered & Lab Created ✅ |
 | **4** | **Identity & Governance: LDAP + RBAC** | 📋 **To Draft & Drill** | *Pending Runbook Creation*<br>(Drafting in `interview/ldap-rbac-auth.md`) | • Built-in OAuth server (`oauth-openshift`)<br>• `LDAPIdentityProvider` (`ldaps://:636`, bind DN, filters)<br>• `ldap-group-sync` CronJob & automated user pruning<br>• Roles, ClusterRoles, RoleBindings & SCC mapping | Next on Deck |
 | **5** | **Resource Governance: Quotas, Limits & LimitRanges** | ✅ **COMPLETED** | [`interview/resource-governance-limitranges-qos.md`](interview/resource-governance-limitranges-qos.md)<br>[`simulators/K8s_Resource_Governance_Simulator.html`](simulators/K8s_Resource_Governance_Simulator.html) | • The Lifeboat Analogy & `oom_score_adj`<br>• The 10-replica multiplier 4-layer breakdown<br>• Requests (Scheduler floor) vs Limits (Kernel ceiling)<br>• CPU CFS throttling vs Memory OOMKilled<br>• `LimitRange` guardrails vs `ResourceQuota` budget | Mastered & Simulator Built ✅ |
 | **6** | **OLM, Operators, CRD & CR** | ✅ **COMPLETED** | [`interview/operator-crd-cr.md`](interview/operator-crd-cr.md)<br>[`automated_olm_process.md`](automated_olm_process.md) | • Operator Pattern: CRD + Controller reconcile loop<br>• Reconcile mechanics (`Reconcile(Request)` idempotent)<br>• Status subresource, generation vs observedGeneration<br>• Finalizers & deadlock recovery | Covered & Mastered ✅ |
@@ -28,7 +28,10 @@
 
 ### 📅 Session 2: 06-Oct-2026 (Tue)
 * **Goal:** Master Topic 3 (Observability, Prometheus, Grafana & Alerts) and proceed to Topic 4 (Identity & Governance: LDAP + RBAC).
-* **Current Score:** 4 of 7 Modules Mastered (57%). Observability in progress.
+* **Accomplished:**
+  * ✅ **Topic 3 (Observability & Enterprise Grafana):** Mastered collector wire harvesting (`cAdvisor` on cgroups, `node-exporter` on `/proc`, `kube-state-metrics` on Informer cache), Thanos Querier HA gRPC deduplication pipeline, Alertmanager inhibition trees, Top 10 SRE PromQL recipes, and Enterprise Grafana multi-tenant datasources and template variables.
+* **Current Score:** 5 of 7 Modules Mastered (71%).
+* **Next Session Resume Point:** 👉 **Topic 4: Identity & Governance (LDAP + RBAC)**.
 
 ### 📅 Session 1: 05-Oct-2026 (Mon)
 * **Goal:** Initialize Master Timetable & complete Ingress, Storage, and Resource Governance deep drills.

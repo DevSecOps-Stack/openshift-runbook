@@ -181,48 +181,99 @@ oc exec -n openshift-monitoring alertmanager-main-0 -c alertmanager -- amtool al
 
 ---
 
+---
+
 ## 📈 5.1 Enterprise Grafana & Metric Source Architecture
 
 In production enterprise setups (e.g. `BrainyBots Enterprise` / `CloudOps Systems`), Grafana dashboards are filtered by namespace (e.g., `namespace="payments-prod"`). Even though developers see namespace-filtered views, **these infrastructure metrics originate from `openshift-monitoring`**:
 
-### A. The 3 Platform Metric Collectors
+### A. The 3 Platform Metric Collectors (Wire-Level Deep Dive)
 
-| Grafana Dashboard Metric | Collecting Agent / Daemon | Underlying Prometheus Metric Name |
-| :--- | :--- | :--- |
-| **Node CPU / Memory Saturation** | `node-exporter` (DaemonSet on every node) | `node_cpu_seconds_total`<br>`node_memory_MemTotal_bytes` |
-| **Pod CPU / RAM Utilization** | `cAdvisor` (Built into host Kubelet) | `container_cpu_usage_seconds_total`<br>`container_memory_working_set_bytes` |
-| **Namespace Quotas & Limits** | `kube-state-metrics` & `openshift-state-metrics` (Deployment) | `kube_resourcequota`<br>`kube_pod_container_resource_requests`<br>`kube_pod_container_resource_limits` |
-| **App 5xx / JVM / HTTP Latency** | `User Workload Prometheus` (Application `/metrics`) | `http_requests_total`<br>`jvm_memory_used_bytes` |
-
----
-
-### B. Production Grafana PromQL Queries
-
-1. **Pod CPU Utilization (per Pod):**
-   ```promql
-   sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="payments-prod"}) by (pod)
-   ```
-
-2. **Namespace CPU Quota Usage %:**
-   ```promql
-   sum(kube_pod_container_resource_requests{namespace="payments-prod", resource="cpu"}) 
-   / 
-   sum(kube_resourcequota{namespace="payments-prod", resource="cpu", type="hard"}) * 100
-   ```
-
-3. **Cluster Total CPU Utilization:**
-   ```promql
-   (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
-   ```
+| Collector Agent | How It Physically Harvests Data | Underlying Linux / K8s Source | Core Prometheus Metrics |
+| :--- | :--- | :--- | :--- |
+| **`cAdvisor`** *(Container Advisor)* | Built directly into the host **Kubelet** daemon. Samples container cgroup directories every 10–15s and exposes them at `https://<node-ip>:10250/metrics/cadvisor`. | Linux `/sys/fs/cgroup/cpu/` & `/sys/fs/cgroup/memory/`.<br>Measures actual kernel accounting slices. | `container_cpu_usage_seconds_total`<br>`container_memory_working_set_bytes`<br>`container_cpu_cfs_throttled_periods_total` |
+| **`node-exporter`** *(Node OS Agent)* | Deployed as a **DaemonSet** with `hostPID: true` and `hostNetwork: true`. Queries Linux kernel pseudo-filesystems. | Linux `/proc/stat` (CPU mode ticks)<br>`/proc/meminfo` (RAM breakdown)<br>`/proc/net/dev` (NIC bytes) | `node_cpu_seconds_total`<br>`node_memory_MemTotal_bytes`<br>`node_filesystem_free_bytes` |
+| **`kube-state-metrics`** *(API Informer)* | Runs as a **Deployment** in `openshift-monitoring`. Connects to `kube-apiserver` via Client-Go **Informer (`ListWatch`)**. Generates in-memory metrics with **zero database/etcd load**. | Live Kubernetes Object states declared in `etcd` (Pods, Quotas, Deployments, Nodes). | `kube_resourcequota`<br>`kube_pod_container_resource_requests`<br>`kube_pod_container_resource_limits`<br>`kube_pod_status_phase` |
+| **`User Workload Prometheus`** | Scrapes tenant application pods via `ServiceMonitor` or `PodMonitor` CRDs reconciled by Prometheus Operator. | Application HTTP endpoint (e.g. `http://pod:8080/metrics`). | `http_requests_total`<br>`payment_transactions_total`<br>`jvm_memory_used_bytes` |
 
 ---
 
-### C. Grafana Datasource Configuration
+### B. Thanos Querier: The HA gRPC Deduplication Pipeline
 
-In Enterprise Grafana, the Prometheus Datasource does **NOT** connect to raw Prometheus pods. It connects to the **Thanos Querier Endpoint**:
-* **Internal Cluster URL:** `https://thanos-querier.openshift-monitoring.svc:9091`
-* **External Route:** `https://thanos-querier-openshift-monitoring.apps.<cluster-domain>`
-* **Authentication:** OAuth Bearer Token carrying the service account permissions.
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│     prometheus-k8s-0 (Pod)      │       │     prometheus-k8s-1 (Pod)      │
+│  [TSDB] ◄── [thanos-sidecar]    │       │  [TSDB] ◄── [thanos-sidecar]    │
+│             (gRPC :10901)       │       │             (gRPC :10901)       │
+└────────────────┬────────────────┘       └────────────────┬────────────────┘
+                 │                                         │
+                 └────────────────────┬────────────────────┘
+                                      │ gRPC (Federated Fetch)
+                                      ▼
+                        ┌───────────────────────────┐
+                        │      Thanos Querier       │
+                        │ 1. Deduplicates HA samples│
+                        │ 2. Merges CMO + UWM data  │
+                        │ 3. Enforces tenant RBAC   │
+                        └─────────────┬─────────────┘
+                                      │ HTTP PromQL (:9091)
+                                      ▼
+                        ┌───────────────────────────┐
+                        │  kube-rbac-proxy / OAuth  │
+                        └─────────────┬─────────────┘
+                                      │
+                                      ▼
+                     [ Enterprise Grafana / SRE Cockpit ]
+```
+
+* **Deduplication Mechanics:** Both `prometheus-k8s-0` and `prometheus-k8s-1` scrape the identical targets simultaneously. Thanos Querier strips the `prometheus_replica` label and deduplicates overlapping timestamps so Grafana sees a clean, uninterrupted line with zero jitter.
+* **Multi-Tenancy Guardrail:** Thanos Querier integrates with OpenShift OAuth. When an engineer queries `/api/v1/query`, the OAuth proxy validates their token and silently injects `{namespace="team-allowed"}` matchers so tenants cannot spy on other business units.
+
+---
+
+### C. Top 10 Enterprise PromQL Recipes (SRE Production Cockpit)
+
+```promql
+# 1. Container CFS CPU Throttling % (High = Pod latency spike!)
+sum(rate(container_cpu_cfs_throttled_periods_total{namespace="payments-prod"}[5m])) by (pod)
+/
+sum(rate(container_cpu_cfs_periods_total{namespace="payments-prod"}[5m])) by (pod) * 100
+
+# 2. Container Memory Working Set vs Limit % (At 95% = OOMKilled risk!)
+sum(container_memory_working_set_bytes{namespace="payments-prod", container!=""}) by (pod)
+/
+sum(kube_pod_container_resource_limits{namespace="payments-prod", resource="memory"}) by (pod) * 100
+
+# 3. Pod CPU Utilization (Instantaneous Core Usage)
+sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="payments-prod"}) by (pod)
+
+# 4. Namespace CPU Quota Consumption %
+sum(kube_pod_container_resource_requests{namespace="payments-prod", resource="cpu"}) 
+/ 
+sum(kube_resourcequota{namespace="payments-prod", resource="cpu", type="hard"}) * 100
+
+# 5. Pod Restarts Burn Rate (CrashLoop detection over last 1 hour)
+sum(increase(kube_pod_container_status_restarts_total{namespace="payments-prod"}[1h])) by (pod)
+
+# 6. Cluster-Wide Node Memory Saturation %
+(1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))) * 100
+
+# 7. Cluster-Wide Total Node CPU Saturation %
+(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
+
+# 8. HAProxy Ingress HTTP 5xx Error Rate %
+sum(rate(haproxy_backend_http_responses_total{code=~"5.."}[5m])) 
+/ 
+sum(rate(haproxy_backend_http_responses_total[5m])) * 100
+
+# 9. Ingress P99 Response Latency (Milliseconds)
+histogram_quantile(0.99, sum(rate(haproxy_backend_response_time_seconds_bucket[5m])) by (le, backend)) * 1000
+
+# 10. PVC Storage Capacity Saturation %
+(sum(kubelet_volume_stats_used_bytes{namespace="payments-prod"}) by (persistentvolumeclaim)
+/
+sum(kubelet_volume_stats_capacity_bytes{namespace="payments-prod"}) by (persistentvolumeclaim)) * 100
+```
 
 ---
 

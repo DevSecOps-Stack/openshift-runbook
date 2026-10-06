@@ -178,6 +178,52 @@ curl -k -H "Authorization: Bearer $(oc whoami -t)" "https://${THANOS_URL}/api/v1
 oc exec -n openshift-monitoring alertmanager-main-0 -c alertmanager -- amtool alert --alertmanager.url=http://localhost:9093
 ```
 
+
+---
+
+## 📈 5.1 Enterprise Grafana & Metric Source Architecture
+
+In production enterprise setups (e.g. `BrainyBots Enterprise` / `CloudOps Systems`), Grafana dashboards are filtered by namespace (e.g., `namespace="payments-prod"`). Even though developers see namespace-filtered views, **these infrastructure metrics originate from `openshift-monitoring`**:
+
+### A. The 3 Platform Metric Collectors
+
+| Grafana Dashboard Metric | Collecting Agent / Daemon | Underlying Prometheus Metric Name |
+| :--- | :--- | :--- |
+| **Node CPU / Memory Saturation** | `node-exporter` (DaemonSet on every node) | `node_cpu_seconds_total`<br>`node_memory_MemTotal_bytes` |
+| **Pod CPU / RAM Utilization** | `cAdvisor` (Built into host Kubelet) | `container_cpu_usage_seconds_total`<br>`container_memory_working_set_bytes` |
+| **Namespace Quotas & Limits** | `kube-state-metrics` & `openshift-state-metrics` (Deployment) | `kube_resourcequota`<br>`kube_pod_container_resource_requests`<br>`kube_pod_container_resource_limits` |
+| **App 5xx / JVM / HTTP Latency** | `User Workload Prometheus` (Application `/metrics`) | `http_requests_total`<br>`jvm_memory_used_bytes` |
+
+---
+
+### B. Production Grafana PromQL Queries
+
+1. **Pod CPU Utilization (per Pod):**
+   ```promql
+   sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="payments-prod"}) by (pod)
+   ```
+
+2. **Namespace CPU Quota Usage %:**
+   ```promql
+   sum(kube_pod_container_resource_requests{namespace="payments-prod", resource="cpu"}) 
+   / 
+   sum(kube_resourcequota{namespace="payments-prod", resource="cpu", type="hard"}) * 100
+   ```
+
+3. **Cluster Total CPU Utilization:**
+   ```promql
+   (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
+   ```
+
+---
+
+### C. Grafana Datasource Configuration
+
+In Enterprise Grafana, the Prometheus Datasource does **NOT** connect to raw Prometheus pods. It connects to the **Thanos Querier Endpoint**:
+* **Internal Cluster URL:** `https://thanos-querier.openshift-monitoring.svc:9091`
+* **External Route:** `https://thanos-querier-openshift-monitoring.apps.<cluster-domain>`
+* **Authentication:** OAuth Bearer Token carrying the service account permissions.
+
 ---
 
 ## ⚡ 6. 30-Second Interview Flashcards

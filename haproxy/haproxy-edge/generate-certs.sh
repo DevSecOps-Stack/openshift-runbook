@@ -17,9 +17,9 @@ echo "🔐 [2/4] Generating Server Private Key and CSR..."
 openssl req -new -nodes -newkey rsa:2048 \
   -keyout server.key \
   -out server.csr \
-  -subj "/C=AU/O=BrainyBots Enterprise/CN=*.apps.okd-sno.brainybots.cloud"
+  -subj "/C=AU/O=BrainyBots Enterprise/CN=*.edge-app.apps.okd-sno.brainybots.cloud"
 
-echo "🔐 [3/4] Creating Multi-SAN Configuration & Signing Server Certificate..."
+echo "🔐 [3/4] Creating Scoped SAN Configuration & Signing Server Certificate..."
 cat << 'EOF' > san.cnf
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
@@ -57,8 +57,8 @@ EOF
 echo ""
 echo "=========================================================================="
 echo "✅ Certificates Generated & Injected into 01-tls-secret.yaml!"
-echo "=========================================================================="
 echo "🔒 To trust this certificate in macOS (eliminating browser warnings):"
+echo "   sudo security delete-certificate -c \"BrainyBots Enterprise Root CA\" /Library/Keychains/System.keychain 2>/dev/null || true"
 echo "   sudo security add-trusted-cert -d -r trustRoot -p ssl -k /Library/Keychains/System.keychain \"$CERTS_DIR/root-ca.crt\""
 echo ""
 echo "⚠️  CRITICAL: After running the command above, quit Chrome completely (Cmd + Q)"

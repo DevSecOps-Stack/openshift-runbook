@@ -290,15 +290,18 @@ Which is why there are two resource blocks in the values file.
 clusterthruputpersecond:   4096Kb   # Global node egress ceiling across all pods on this node
 containerthruputpersecond: 2048Kb   # Ceiling per container (straw rate)
 
-# Line & Read Buffer Limits (Collectord defaults)
-fileInputLineMaxSize:      1mb      # Max allowed bytes for ONE log line (TRUNCATES IF EXCEEDED!)
+# Line & Read Buffer Limits (Collectord defaults & tuning)
+fileInputLineMaxSize:      2mb      # Max allowed bytes for ONE log line (must accommodate large 1.6MB events)
 fileInputBufferSize:       8k       # Read buffer per file syscall
 ```
 
 - **Throttling does NOT block apps:** Apps write to disk (`/var/log/pods` or `emptyDir`) at full disk I/O speed. The limit only constrains **Collectord's read/export consumption rate**.
 - **Noisy-Neighbor Shield:** A rogue container spamming 20 MB/s is clamped to `containerthruputpersecond` (e.g. 2 MB/s), preserving bandwidth for all other containers on the host.
 - **Node Ceiling:** Total egress across all containers on that worker node never exceeds `clusterthruputpersecond` (e.g. 4 MB/s).
-- **The 1 MB Line Size Trap:** If an app logs a 1.6 MB event (e.g., raw payload dump), Collectord truncates it at `fileInputLineMaxSize` (default 1 MB). Any `spanId` or JSON closing brackets after 1 MB get severed $\rightarrow$ event search fails!
+- **The 2MB Line vs. 2MB Throughput Trap:** If `fileInputLineMaxSize` is 2 MB and an app emits a 1.6 MB event:
+  - 1 single line consumes **80% of the entire 1-second container budget** ($1.6\text{ MB} / 2.0\text{ MB}$).
+  - A burst of 5 concurrent logins ($5 \times 1.6\text{ MB} = 8\text{ MB}$) forces Collectord to serialize reads over **5 full seconds** (1 event per second).
+  - If a 13-minute rotation occurs during this 5-second backlog, Collectord falls out of sync during the rename shuffle.
 - **Rotation Before Catch-up:** If files rotate rapidly (e.g., 20 MB files filling every 13 min) while Collectord is lagged behind due to throughput throttling, unread bytes in the renamed file (`*.1.log`) risk being orphaned or skipped.
 
 ---
